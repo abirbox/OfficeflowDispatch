@@ -1,0 +1,49 @@
+{
+  "summary": "Backend regression (18 tests) passes end-to-end against localhost:8001 - auth (login/me/logout, brute-force-safe 401), companies CRUD, employees list (admin visible), attendance today/history/stats with new {checked_in, attendance} shape, GPS active/history, tasks CRUD + stats. Previous iteration's employees 500 and attendance/today 404 are fixed. However the public preview URL (REACT_APP_BACKEND_URL) still returns Emergent's 'Preview Unavailable' HTML for '/' and 404 for '/api/*', so no user-facing frontend or integration testing was possible from outside the pod. This is the same infra blocker as iteration_1.",
+  "tested_scope": ["backend", "auth", "attendance", "employees", "companies", "tasks", "gps"],
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Everything (login -> dashboard -> all modules)",
+        "issue": "Preview URL https://mahossain432-gmail-com-officeflow.preview.emergentagent.com serves Emergent's 'Preview Unavailable!!! Our Agent is resting after inactivity' page (title=Not Found). /api/* returns 404 from Cloudflare/ingress, not FastAPI. Backend is healthy on localhost:8001 but ingress is not routing this pod. Playwright cannot even see the login form.",
+        "affected_selectors": ["[data-testid=login-email-input]", "[data-testid=login-submit-button]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "PLATFORM: Wake the preview environment (open app.emergent.sh and restart the app) or fix the ingress so that https://mahossain432-gmail-com-officeflow.preview.emergentagent.com routes '/' to the React dev server on :3000 and '/api/*' to FastAPI on :8001. Without this, no external UI / integration testing can be performed and end users cannot use the app.",
+    "After wake-up, re-run frontend Playwright suite: login -> dashboard stat cards -> sidebar nav across 10 modules -> theme toggle persistence -> attendance check-in -> tasks kanban create/update -> logout.",
+    "Consider tightening secure/samesite cookie flags for local testing OR document that backend tests must inject cookies via Cookie header when running against http://localhost (already handled in backend_test.py)."
+  ],
+  "critical_code_review_comments": [
+    "auth.py brute-force key is `client.host:email` - behind ingress client.host is the proxy IP so the whole tenant shares one bucket per email; acceptable but note it is per-email, not per-IP.",
+    "employees.py get_employees returns ALL users including super_admin as an 'employee' (no role filter). This is why the admin appears in the employees table; probably intentional but worth confirming.",
+    "attendance.py check-in stores check_in as ISO string but created_at as datetime - inconsistent. Response conversion handles both, but be careful when adding new fields.",
+    "auth.py login sets cookies with secure=True + samesite=none unconditionally; correct for prod HTTPS but means cookies are dropped by any HTTP client on non-TLS (must inject Cookie header for local tests).",
+    "tasks.py create_task uses **task.model_dump() which will silently include any client-supplied field defined on TaskCreate; ensure TaskCreate doesn't expose privileged fields (e.g. created_by, progress).",
+    "gps.py update_location sums distance without a time/accuracy sanity check; a bad GPS jump will inflate total_distance. Non-blocking but worth a filter."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new, pytest-based regression suite, replaces ad-hoc curl)"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 backend endpoints via localhost; 1 additional test asserts the platform ingress bug and is expected to fail until preview is woken)",
+    "frontend": "0% (untestable - preview URL returns Emergent 'Preview Unavailable' page, same as iteration_1)"
+  },
+  "test_credentials": "Admin mahossain432@gmail.com / Admin@2026Secure (verified working)",
+  "seed_data_creation": "None persisted - all TEST_ prefixed companies/tasks are created and deleted within the same test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend is fully green on localhost:8001. The blocker is the preview ingress at REACT_APP_BACKEND_URL - it shows Emergent's asleep-agent page and /api/* returns 404 (Cloudflare, not FastAPI). Once the preview is woken from app.emergent.sh, run `pytest /app/backend/tests/backend_test.py -n 0` (the TestPublicIngress class will start passing) and then run Playwright against the public URL to cover all 14 frontend flows in the review request. Pytest ini requires -n 0 to disable xdist for serial run. Cookies must be injected via Cookie header when hitting http://localhost because they are Secure+SameSite=None (already handled in the fixture).",
+  "rca of the issue": "Preview URL 404 root cause: Emergent's edge (Cloudflare) is serving a static 'Preview Unavailable' Webflow page for this hostname because the app has been marked as inactive. The Kubernetes pod running frontend:3000 and backend:8001 is healthy and answering on localhost, but the ingress that would normally forward / -> :3000 and /api -> :8001 has been detached. Fix: user restarts the app from app.emergent.sh; no code change required."
+}

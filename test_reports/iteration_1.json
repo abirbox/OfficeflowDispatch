@@ -1,0 +1,46 @@
+{
+  "summary": "Preview URL returns 'Preview Unavailable' (agent asleep), blocking external frontend + public API testing. Verified backend via localhost:8001 instead. Auth/login, /auth/me and /companies work. GET /api/employees crashes with 500 due to pydantic validation error (company_id required-string but admin has None).",
+  "tested_scope": ["backend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login (admin creds) -> 200 with user payload",
+    "GET /api/auth/me with cookie -> 200",
+    "GET /api/companies -> 200 (empty list)",
+    "Backend service RUNNING under supervisor, healthy on localhost:8001",
+    "Login sets httpOnly cookie and /auth/me works with it"
+  ],
+  "failed": [
+    {
+      "area": "Infrastructure / Preview Ingress",
+      "issue": "Public preview URL shows 'Preview Unavailable!!! Our Agent is resting after inactivity.' Frontend HTML returns 200 but title is 'Not Found' and /api/* returns 404 (from ingress, not FastAPI). Cannot exercise the app as a user until the preview is woken up from app.emergent.sh.",
+      "evidence": "curl https://.../api/health -> HTTP 404 'page not found' (cf-ray, cloudflare) while http://localhost:8001/api/health -> 200. Browser screenshot shows Emergent 'Preview Unavailable' page at both / and /login.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "Backend / Employees",
+      "issue": "GET /api/employees returns 500 Internal Server Error. Pydantic ValidationError in EmployeeResponse: 'company_id: Input should be a valid string [input_value=None]'. The seeded super_admin user has company_id=None, so building the response fails. Fields likely need Optional[str] (company_id, branch_id, department_id, designation_id) in models/employee.py EmployeeResponse.",
+      "evidence": "routes/employees.py:117 EmployeeResponse(...) -> pydantic_core.ValidationError: 'company_id Input should be a valid string [type=string_type, input_value=None]'. Reproduced via `curl -b cookie http://localhost:8001/api/employees` -> 'Internal Server Error' HTTP 500.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "Backend / Attendance",
+      "issue": "GET /api/attendance/today returns 404 with {'detail':'No attendance record for today'} when the user has not checked in yet. This is likely to break the frontend Attendance page unless the client explicitly handles 404. Preferred behaviour: return 200 with {checked_in: false} or null so the UI can render the Check-In button cleanly.",
+      "evidence": "curl -b cookie http://localhost:8001/api/attendance/today -> HTTP 404 {'detail':'No attendance record for today'}",
+      "priority": "MEDIUM"
+    },
+    {
+      "area": "Frontend (external)",
+      "issue": "Could not test any UI flow (login form, dashboard, sidebar navigation, theme toggle, companies/employees/attendance pages) because the preview environment is asleep. Playwright saw 'Preview Unavailable' page on both / and /login; no email/password/submit inputs detected.",
+      "evidence": "Playwright screenshot of https://mahossain432-gmail-com-officeflow.preview.emergentagent.com/login shows Emergent 'Preview Unavailable' screen; email/password/submit selectors all False.",
+      "priority": "HIGH"
+    }
+  ],
+  "action_items": [
+    "Wake the preview environment (open app.emergent.sh -> restart app) so external URL routes /api to backend and serves the React app; without this no user-facing testing is possible.",
+    "Fix EmployeeResponse in /app/backend/models/employee.py: make company_id, branch_id, department_id, designation_id Optional[str] = None. Then GET /api/employees will return 200.",
+    "Change /api/attendance/today to return 200 with a 'checked_in: false' payload (or null) instead of 404 when there is no record, so the AttendancePage renders the check-in state cleanly.",
+    "After the above, re-run full frontend + integration testing (login -> dashboard -> employees table -> companies grid -> check-in/out -> theme toggle -> responsive sidebar)."
+  ],
+  "success_rate": {"backend": "60%", "frontend": "0% (untestable - preview asleep)"},
+  "retest_needed": true,
+  "full_testing_deferred": true
+}

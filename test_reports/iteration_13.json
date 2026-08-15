@@ -1,0 +1,23 @@
+{
+  "summary": "Iter 13 — Verified axios base-url fix. axios.js now returns '/api' whenever window is defined so every browser request is same-origin. E2E on preview host: (1) POST /api/auth/login succeeds with admin creds and request URL is https://officeflow-prod.preview.emergentagent.com/api/auth/login (relative /api, NOT the env URL) — set-cookie access_token/refresh_token httpOnly Secure SameSite=None Partitioned observed via curl. (2) /dashboard/employees Add Employee opens dialog (data-testid=add-employee-dialog), submit posts /api/employees, dialog CLOSES reliably and new employee appears in the list. (3) /dashboard/settings tab-offices renders data-testid=office-locations-tab with NO 'not authenticated' text. (4) /dashboard/reports renders data-testid=reports-page with month/year selectors + 4 tabs (Overview/Attendance/Payroll/Overtime) and Payroll+Shifts summary cards. All API requests observed during the run hit a single host = officeflow-prod.preview.emergentagent.com (same origin as the page). No CORS or 401 on the tested flows.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter12_offices_bulkshifts.py",
+    "/app/test_reports/pytest/iter12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "axios.js resolveBaseUrl() now correctly forces '/api' in browser — good. The REACT_APP_BACKEND_URL fallback only runs during SSR, which this CRA app doesn't use, but the guard is harmless.",
+    "Because withCredentials=true and requests are same-origin, cookies are sent automatically; no code needs to read tokens from JSON body — matches backend which does not return access_token in body.",
+    "Minor: consider removing REACT_APP_BACKEND_URL from frontend/.env entirely to prevent future regressions where someone re-adds envUrl into baseURL."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "smoke 100% (login endpoint verified via curl; no backend code changes since iter-12 which was 18/18)", "frontend": "100% on the 3 previously-broken flows + reports"},
+  "test_credentials": "mahossain432@gmail.com / Admin@2026Secure (super_admin); employee@officeflow.com / Employee@123",
+  "seed_data_creation": "Created one test employee testemp_<timestamp>@officeflow.com during E2E; not cleaned up (harmless, follows earlier iteration convention).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The axios base URL fix is verified on preview. Production URL (officeflow-prod.emergent.host) was not directly tested here since it is a separate deployment; the code change is deployment-agnostic — every browser call becomes '/api/...' relative, which the Kubernetes ingress will resolve to the FastAPI backend on the same origin regardless of environment. If the user retests production and still sees 'not authenticated' on office-locations, verify the production deploy actually picked up the new bundle (check /static/js/main.*.js contains 'return \\'/api\\'' in resolveBaseUrl).",
+  "rca of the issue": "Previous axios.js used `${REACT_APP_BACKEND_URL}/api` which on production (window.origin = officeflow-prod.emergent.host) pointed at the PREVIEW backend origin (officeflow-prod.preview.emergentagent.com). That is a cross-origin request; the httpOnly cookies set on the preview domain are not sent to it (and CORS credentialed requests need explicit origin allow), so /auth/me returned 401, employee create returned 401/CORS, and office-locations tab surfaced 'not authenticated'. Fix (resolveBaseUrl always returns '/api' in browser) makes every request same-origin — cookies flow, no CORS. Verified end-to-end."
+}

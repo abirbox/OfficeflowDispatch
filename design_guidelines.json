@@ -1,0 +1,148 @@
+{
+  "project_name": "OfficeFlow",
+  "theme_strategy": "Dual Theme (Light/Dark Mode toggle). Light mode mimics Stripe (soft shadows, off-whites, highly refined focus states). Dark mode mimics Linear (deep blacks, tinted greys, subtle glowing borders, elevated z-index over shadows).",
+  "typography": {
+    "headings": {
+      "font_family": "Cabinet Grotesk, sans-serif",
+      "weights": ["500", "700", "800"],
+      "styling": "tracking-tight leading-none",
+      "installation": "npm install @fontsource/cabinet-grotesk"
+    },
+    "body": {
+      "font_family": "Manrope, sans-serif",
+      "weights": ["400", "500", "600"],
+      "styling": "tracking-normal leading-relaxed",
+      "installation": "npm install @fontsource/manrope"
+    },
+    "mono": {
+      "font_family": "JetBrains Mono, monospace",
+      "weights": ["400", "500"],
+      "installation": "npm install @fontsource/jetbrains-mono"
+    },
+    "hierarchy_rules": "H1 maxes at text-4xl sm:text-5xl. Use fluid scaling. Jump between heading and subheading must not exceed 2 Tailwind steps. Do NOT use Inter for Headings."
+  },
+  "colors": {
+    "archetype": "ARCHETYPE 4: SWISS & HIGH-CONTRAST + ARCHETYPE 5: LUXURY",
+    "light_mode": {
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "surface_hover": "#F1F5F9",
+      "border": "#E2E8F0",
+      "text_primary": "#0F172A",
+      "text_secondary": "#64748B",
+      "accent_primary": "#4F46E5",
+      "accent_hover": "#4338CA",
+      "focus_ring": "rgba(79, 70, 229, 0.2)"
+    },
+    "dark_mode": {
+      "background": "#09090B",
+      "surface": "#18181B",
+      "surface_hover": "#27272A",
+      "border": "#27272A",
+      "text_primary": "#FAFAFA",
+      "text_secondary": "#A1A1AA",
+      "accent_primary": "#6366F1",
+      "accent_hover": "#818CF8",
+      "focus_ring": "rgba(99, 102, 241, 0.25)"
+    },
+    "rules": [
+      "Use 'Tinted Grey' rule. Never use pure #000000 or #808080. Always tint neutrals slightly.",
+      "High contrast text ONLY. Meet APCA contrast rules.",
+      "Always explicitly set text color on hover. Example: hover:bg-slate-900 hover:text-white"
+    ]
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "light": "Use multiple soft layered shadows: shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]",
+      "dark": "Rely on 1px borders and z-index transitions rather than heavy shadows. Use subtle glows for accents: drop-shadow-[0_0_8px_rgba(99,102,241,0.3)]"
+    },
+    "borders": "1px crisp inner borders. In dark mode: border-white/10. In light mode: border-slate-200.",
+    "surfaces": "Use 'Neumorphism (Crisp)' for cards (1px border + flat background). Use 'Crystal Glass' (backdrop-blur-xl bg-white/70 or bg-black/60) for sticky headers and navs."
+  },
+  "components": {
+    "buttons": "Pill-shaped or rounded-lg with sharp interaction animations. Active state should scale down slightly (active:scale-95). Explicit focus rings (focus:ring-2 focus:ring-offset-2).",
+    "inputs": "Shadcn UI heavily customized. No standard browser focus. Use subtle background colors with sharp 1px border on focus.",
+    "cards": "Cardless or highly rectangular minimalist cards with 1px border. No floating card islands with huge drop shadows. Maximum border-radius: 12px (rounded-xl).",
+    "tables": "Dense, highly scannable. Sticky headers. Row hover states must be visible. Avatar + Name combo for employee columns.",
+    "navigation": "macOS style sidebar. 256px expanded, 64px collapsed. Translucent glass effect.",
+    "dropdowns": "DO NOT use transparent backgrounds. Must have solid or highly blurred background with 1px border.",
+    "modals": "Use Shadcn Dialog. Backdrop blur for the overlay (bg-black/40 backdrop-blur-sm)."
+  },
+  "grids_layouts": {
+    "dashboard_grid": "High Density Grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4 or 12-column grid. Gap strategy: Tight (gap-4 or gap-6).",
+    "bento_grid": "For overview sections, use asymmetric spans. The Hero (col-span-full md:col-span-8 row-span-2).",
+    "spacing": "Generous spacing. Tailwind scale: p-4, p-6, p-8. Base scale 4px. Containers with borders MUST have internal padding (p-6).",
+    "alignment": "Left-align paragraphs, inputs, tabular data. Optical alignment over geometrical."
+  },
+  "motion": {
+    "animations": "Micro-interactions on all interactive elements. Use Framer Motion for page transitions and complex state changes.",
+    "transitions": "Use specific properties (transition-colors, transition-transform duration-200 ease-out). NEVER use 'transition-all' globally.",
+    "entrance": "Staggered fade-up for list items and dashboard cards."
+  },
+  "accessibility": {
+    "contrast": "Minimum 4.5:1 for normal text. Use APCA guidelines.",
+    "focus": "All interactive elements must have visible, high-contrast focus rings.",
+    "motion": "Respect prefers-reduced-motion.",
+    "testing": "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='login-submit-button')."
+  },
+  "media": {
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NTY5ODk5NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Employee Avatar 1",
+        "category": "employee_management"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1609436132311-e4b0c9370469?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NTY5ODk5NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Employee Avatar 2",
+        "category": "employee_management"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NTY5ODk5NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Employee Avatar 3",
+        "category": "employee_management"
+      }
+    ],
+    "backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1497366754035-f200968a6e72?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBvZmZpY2UlMjBpbnRlcmlvcnxlbnwwfHx8fDE3ODU2OTg5OTV8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Modern Office Hallway",
+        "category": "authentication_onboarding"
+      }
+    ],
+    "maps": [
+      {
+        "url": "https://images.unsplash.com/photo-1620662892011-f5c2d523fae2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxjaXR5JTIwbWFwJTIwc3RyZWV0JTIwdmlldyUyMGFic3RyYWN0fGVufDB8fHx8MTc4NTY5ODk5NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Dark mode map aerial view",
+        "category": "gps_tracking_placeholder"
+      }
+    ]
+  },
+  "libraries": {
+    "icons": "lucide-react (Default for crisp geometric styling) or @phosphor-icons/react (Duotone style for premium feel)",
+    "animations": "framer-motion",
+    "charts": "recharts (wrapped in Shadcn UI chart components)",
+    "notifications": "sonner"
+  },
+  "instructions_to_main_agent": [
+    "You have .js/.jsx files NOT .tsx files. Generate all React components in modern ES6+ Javascript.",
+    "Do NOT use HTML-based components for advanced user interactions. Use Shadcn calendar, dropdown-menu, dialog, etc.",
+    "Use pure HTML+Tailwind for structural bento grid layouts.",
+    "Always apply hover, active, and focus states.",
+    "Ensure dark mode toggle is functional and explicitly controls classes on the root element.",
+    "DO NOT use generic centered layouts. Left-align most dashboard content.",
+    "Use framer-motion heavily on dashboards for entrance stagger and page transitions.",
+    "Create depth through layered design elements with z-index hierarchy, especially in dark mode."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not converge toward generic 'AI slop' aesthetics. Break the mold with tight typography and beautiful spacing.",
+    "NEVER use dark colors as gradients.",
+    "NEVER use transparent backgrounds in headers or overlays where text visibility could be compromised.",
+    "NEVER apply 'transition: all'. Explicitly state 'transition-colors' or 'transition-transform'.",
+    "NEVER center align the app container (.App { text-align: center }).",
+    "NEVER use AI assistant emojis for icons.",
+    "All interactive elements MUST include data-testid attribute.",
+    "Always use 'sonner' for toasts, located in /app/src/components/ui/sonner.jsx.",
+    "Replace Shadcn's default 'Inter' styling with 'Cabinet Grotesk' for headings and 'Manrope' for body."
+  ]
+}
