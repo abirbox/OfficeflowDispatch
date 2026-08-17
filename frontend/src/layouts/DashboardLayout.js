@@ -24,7 +24,11 @@ import {
   ChevronDown,
   TrendingUp,
   BarChart3,
+  Truck,
+  Shield,
+  ClipboardList,
 } from 'lucide-react';
+import { hasPermission, hasAnyDispatchPerm } from '@/lib/permissions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -60,6 +64,16 @@ const allNavigation = [
   { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['super_admin', 'admin', 'hr', 'manager', 'employee'] },
 ];
 
+const dispatchNavigation = [
+  { name: 'Dispatch Dashboard', href: '/dashboard/dispatch', icon: LayoutDashboard, perm: 'dispatch.dashboard.view' },
+  { name: "Today's Dispatch", href: '/dashboard/dispatch/today', icon: ClipboardList, perm: 'dispatch.schedule.view' },
+  { name: 'Dispatch Schedule', href: '/dashboard/dispatch/schedules', icon: Truck, perm: 'dispatch.schedule.view' },
+  { name: 'Clients', href: '/dashboard/dispatch/clients', icon: Building2, perm: 'dispatch.clients.view' },
+  { name: 'Vendors', href: '/dashboard/dispatch/vendors', icon: Building2, perm: 'dispatch.vendors.view' },
+  { name: 'Security Officers', href: '/dashboard/dispatch/officers', icon: Shield, perm: 'dispatch.officers.view' },
+  { name: 'Post Sites', href: '/dashboard/dispatch/post-sites', icon: MapPin, perm: 'dispatch.post_sites.view' },
+];
+
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -72,6 +86,9 @@ const DashboardLayout = () => {
 
   const userRole = user?.role || 'employee';
   const navigation = allNavigation.filter((item) => item.roles.includes(userRole));
+  const dispatchNav = hasAnyDispatchPerm(user)
+    ? dispatchNavigation.filter((item) => hasPermission(user, item.perm))
+    : [];
 
   useEffect(() => {
     const handleResize = () => {
@@ -174,6 +191,37 @@ const DashboardLayout = () => {
                 </button>
               );
             })}
+            {dispatchNav.length > 0 && (
+              <>
+                <div className="mt-4 mb-1 px-3 text-xs uppercase tracking-wider text-[#94A3B8] dark:text-[#71717A]">
+                  {sidebarOpen ? 'Dispatch' : ''}
+                </div>
+                {dispatchNav.map((item) => {
+                  const Icon = item.icon;
+                  const active = isActive(item.href);
+                  return (
+                    <button
+                      key={item.name}
+                      onClick={() => navigate(item.href)}
+                      data-testid={`nav-${item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                        active ? 'bg-[#4F46E5] text-white'
+                          : 'text-[#64748B] dark:text-[#A1A1AA] hover:bg-[#F1F5F9] dark:hover:bg-[#27272A] hover:text-[#0F172A] dark:hover:text-[#FAFAFA]'
+                      }`}
+                    >
+                      <Icon className="w-5 h-5 flex-shrink-0" />
+                      <AnimatePresence>
+                        {sidebarOpen && (
+                          <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium">
+                            {item.name}
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  );
+                })}
+              </>
+            )}
           </nav>
 
           {/* User Profile */}

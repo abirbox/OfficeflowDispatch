@@ -155,6 +155,7 @@ async def login(credentials: UserLogin, request: Request, response: Response, db
         branch_id=user.get("branch_id"),
         department_id=user.get("department_id"),
         designation_id=user.get("designation_id"),
+        permissions=user.get("permissions") or [],
         status=user.get("status", "active"),
         created_at=user["created_at"].isoformat() if isinstance(user["created_at"], datetime) else user["created_at"]
     )
@@ -184,6 +185,7 @@ async def get_me(request: Request, db = Depends(get_db)):
         branch_id=user.get("branch_id"),
         department_id=user.get("department_id"),
         designation_id=user.get("designation_id"),
+        permissions=user.get("permissions") or [],
         status=user.get("status", "active"),
         created_at=user["created_at"].isoformat() if isinstance(user["created_at"], datetime) else user["created_at"]
     )

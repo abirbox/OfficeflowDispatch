@@ -1,0 +1,46 @@
+{
+  "summary": "Backend-only Dispatch iteration 14 testing completed against the public REACT_APP_BACKEND_URL. 22/23 tests passed. Login/permissions, registry auth, client/vendor CRUD and soft-delete persistence, officer statuses, post-pin uniqueness, schedule duty-hours/conflicts/all requested filters/pagination, confirmation history, RBAC, financial redaction, HD bypass, dashboard stats, and existing OfficeFlow smoke endpoints passed. One response-contract bug remains in POST /api/employees.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/employees",
+        "issue": "When permissions are supplied, they are persisted and appear correctly on subsequent login/GET, but the create response always returns permissions: [] instead of the supplied validated permission codes. Reproduced with dispatch.schedule.view and dispatch.clients.view.",
+        "priority": "MEDIUM"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dispatch_iter14.py",
+    "/app/test_reports/pytest/dispatch_iter14.xml"
+  ],
+  "action_items": [
+    "In routes/employees.py create_employee(), pass permissions=user_doc['permissions'] (or the validated list) into EmployeeResponse so POST /api/employees returns the actual persisted permissions.",
+    "Restrict assignment of privileged roles: EmployeeCreate/Update currently accepts arbitrary role strings, while admin and HR callers can create/update users as hd or super_admin and thereby bypass Dispatch authorization.",
+    "Add reference validation to Dispatch officer/post-site creation and schedule updates to prevent dangling or mismatched vendor/client/post-site/officer relationships."
+  ],
+  "critical_code_review_comments": [
+    "RCA for the failing API test: create_employee stores validate_permission_codes(employee.permissions) in user_doc but omits permissions when constructing EmployeeResponse at routes/employees.py:65-87; the model default [] masks the persisted value.",
+    "Employee role is an unconstrained string, and require_admin permits super_admin/admin/hr. Without role-assignment restrictions, an admin or HR user can create an hd user (full dispatch.* bypass) or super_admin user.",
+    "ScheduleCreate validates referenced entities, but ScheduleUpdate does not validate newly supplied client_id/vendor_id/post_site_id/officer_id or officer active status. OfficerCreate and PostSiteCreate also do not verify their foreign references, allowing data-integrity violations."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dispatch_iter14.py",
+    "/app/test_reports/pytest/dispatch_iter14.xml",
+    "/app/test_reports/iteration_14.json"
+  ],
+  "success_rate": {
+    "backend": "95.7% (22/23)",
+    "frontend": "Not tested (backend-only request)"
+  },
+  "seed_data_creation": "Created isolated TEST_ clients, vendors, officers, post sites, future schedules, and employees. Schedules were hard-deleted; entities/employees were deactivated through their soft-delete APIs. Confirmation history for the deleted test schedule may remain as audit history.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use /app/memory/test_credentials.md (admin@example.com/admin123) and the public URL from frontend/.env. Auth is cookie-based and requests.Session works over HTTPS. The dedicated Dispatch suite is test_dispatch_iter14.py. A legacy iter12 suite was also attempted but its hardcoded mahossain432@gmail.com credentials are stale; its auth setup errors are test-infrastructure failures, not current app regressions. The new suite's existing OfficeFlow smoke test passed companies, employees, tasks, attendance/today, and reports/summary.",
+  "rca_of_the_issue": "POST /api/employees validates and persists supplied permissions in user_doc, but its explicit EmployeeResponse constructor does not provide the permissions field. Pydantic therefore applies EmployeeResponse.permissions default [], producing a stale create response even though login and later employee reads expose the correct persisted permissions."
+}

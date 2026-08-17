@@ -23,6 +23,9 @@ import CalendarPage from "@/pages/dashboard/CalendarPage";
 import LeavesPage from "@/pages/dashboard/LeavesPage";
 import PayrollPage from "@/pages/dashboard/PayrollPage";
 import SettingsPage from "@/pages/dashboard/SettingsPage";
+import DispatchDashboardPage from "@/pages/dashboard/dispatch/DispatchDashboardPage";
+import DispatchSchedulePage from "@/pages/dashboard/dispatch/DispatchSchedulePage";
+import { ClientsPage, VendorsPage, OfficersPage, PostSitesPage } from "@/pages/dashboard/dispatch/EntityPages";
 import "@/App.css";
 
 function App() {
@@ -60,6 +63,13 @@ function App() {
             <Route path="leaves" element={<LeavesPage />} />
             <Route path="payroll" element={<PayrollPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="dispatch" element={<DispatchDashboardPage />} />
+            <Route path="dispatch/schedules" element={<DispatchSchedulePage />} />
+            <Route path="dispatch/today" element={<DispatchSchedulePage todayOnly />} />
+            <Route path="dispatch/clients" element={<ClientsPage />} />
+            <Route path="dispatch/vendors" element={<VendorsPage />} />
+            <Route path="dispatch/officers" element={<OfficersPage />} />
+            <Route path="dispatch/post-sites" element={<PostSitesPage />} />
           </Route>
         </Routes>
         <Toaster />

@@ -6,6 +6,7 @@ import uuid
 from models.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse
 from models.user import UserCreate
 from utils.auth import get_current_user, hash_password
+from utils.permissions import validate_permission_codes
 from utils.storage import put_object, generate_upload_path
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
@@ -47,6 +48,7 @@ async def create_employee(employee: EmployeeCreate, request: Request, db = Depen
         "emergency_contact": employee.emergency_contact,
         "emergency_contact_name": employee.emergency_contact_name,
         "salary": employee.salary,
+        "permissions": validate_permission_codes(employee.permissions),
         "status": "active",
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
@@ -80,6 +82,7 @@ async def create_employee(employee: EmployeeCreate, request: Request, db = Depen
         emergency_contact=employee.emergency_contact,
         emergency_contact_name=employee.emergency_contact_name,
         salary=employee.salary,
+        permissions=validate_permission_codes(employee.permissions),
         status="active",
         created_at=user_doc["created_at"].isoformat(),
     )
@@ -139,6 +142,7 @@ async def get_employees(
                 emergency_contact=emp.get("emergency_contact"),
                 emergency_contact_name=emp.get("emergency_contact_name"),
                 salary=emp.get("salary"),
+                permissions=emp.get("permissions") or [],
                 status=emp.get("status", "active"),
                 created_at=emp["created_at"].isoformat() if isinstance(emp["created_at"], datetime) else emp["created_at"],
             )
@@ -180,6 +184,7 @@ async def get_employee(employee_id: str, request: Request, db = Depends(get_db))
         emergency_contact=emp.get("emergency_contact"),
         emergency_contact_name=emp.get("emergency_contact_name"),
         salary=emp.get("salary"),
+        permissions=emp.get("permissions") or [],
         status=emp.get("status", "active"),
         created_at=emp["created_at"].isoformat() if isinstance(emp["created_at"], datetime) else emp["created_at"],
     )
@@ -199,6 +204,8 @@ async def update_employee(employee_id: str, employee: EmployeeUpdate, request: R
         if len(pw) < 6:
             raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
         update_data["password_hash"] = hash_password(pw)
+    if "permissions" in update_data:
+        update_data["permissions"] = validate_permission_codes(update_data["permissions"])
     update_data["updated_at"] = datetime.now(timezone.utc)
     
     await db.users.update_one({"_id": ObjectId(employee_id)}, {"$set": update_data})

@@ -28,6 +28,7 @@ from routes.notifications import router as notifications_router
 from routes.settings import router as settings_router
 from routes.office_locations import router as office_locations_router
 from routes.reports import router as reports_router
+from routes.dispatch import router as dispatch_router
 from utils.auth import hash_password, verify_password
 from utils.storage import init_storage
 
@@ -103,6 +104,19 @@ async def startup():
         await db.users.create_index("email", unique=True)
         await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
         await db.login_attempts.create_index("identifier")
+        # Dispatch indexes
+        await db.dispatch_clients.create_index("name")
+        await db.dispatch_vendors.create_index("name")
+        await db.dispatch_officers.create_index("name")
+        await db.dispatch_officers.create_index("vendor_id")
+        await db.dispatch_post_sites.create_index("post_pin", unique=True)
+        await db.dispatch_post_sites.create_index("client_id")
+        await db.dispatch_post_sites.create_index("vendor_id")
+        await db.dispatch_schedules.create_index([("date", -1), ("officer_id", 1)])
+        await db.dispatch_schedules.create_index("post_site_id")
+        await db.dispatch_schedules.create_index("client_id")
+        await db.dispatch_schedules.create_index("vendor_id")
+        await db.dispatch_confirmation_history.create_index("schedule_id")
         logger.info("Database indexes created")
         
         await seed_admin()
@@ -143,6 +157,7 @@ api_router.include_router(notifications_router)
 api_router.include_router(settings_router)
 api_router.include_router(office_locations_router)
 api_router.include_router(reports_router)
+api_router.include_router(dispatch_router)
 
 app.include_router(api_router)
 

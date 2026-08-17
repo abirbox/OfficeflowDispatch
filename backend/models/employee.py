@@ -18,6 +18,7 @@ class EmployeeCreate(BaseModel):
     emergency_contact: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     salary: Optional[float] = None
+    permissions: Optional[list] = None
 
 class EmployeeUpdate(BaseModel):
     name: Optional[str] = None
@@ -35,6 +36,7 @@ class EmployeeUpdate(BaseModel):
     salary: Optional[float] = None
     avatar_path: Optional[str] = None
     status: Optional[str] = None
+    permissions: Optional[list] = None
 
 class EmployeeResponse(BaseModel):
     id: str
@@ -57,5 +59,6 @@ class EmployeeResponse(BaseModel):
     emergency_contact: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     salary: Optional[float] = None
+    permissions: list = []
     status: str
     created_at: str

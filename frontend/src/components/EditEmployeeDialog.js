@@ -9,17 +9,20 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { UserCog, KeyRound, Ban, Trash2, CheckCircle2 } from 'lucide-react';
+import PermissionsSection from '@/components/PermissionsSection';
 
 const ROLES = [
   { value: 'employee', label: 'Employee' },
   { value: 'manager', label: 'Manager' },
   { value: 'hr', label: 'HR' },
   { value: 'admin', label: 'Admin' },
+  { value: 'hd', label: 'HD (Head of Dispatch)' },
 ];
 
 const EditEmployeeDialog = ({ open, onOpenChange, employee, onChanged }) => {
   const [form, setForm] = useState(null);
   const [password, setPassword] = useState('');
+  const [permissions, setPermissions] = useState([]);
   const [busy, setBusy] = useState(null);
 
   useEffect(() => {
@@ -32,6 +35,7 @@ const EditEmployeeDialog = ({ open, onOpenChange, employee, onChanged }) => {
         salary: employee.salary || 0,
         status: employee.status || 'active',
       });
+      setPermissions(employee.permissions || []);
       setPassword('');
     }
   }, [employee, open]);
@@ -47,6 +51,7 @@ const EditEmployeeDialog = ({ open, onOpenChange, employee, onChanged }) => {
         role: form.role,
         salary: form.salary ? Number(form.salary) : null,
         status: form.status,
+        permissions,
       };
       if (password && password.length >= 6) payload.password = password;
       await api.put(`/employees/${employee.id}`, payload);
@@ -86,7 +91,7 @@ const EditEmployeeDialog = ({ open, onOpenChange, employee, onChanged }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg" data-testid="edit-employee-dialog">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="edit-employee-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><UserCog className="w-5 h-5" /> Edit {employee.name}</DialogTitle>
           <DialogDescription>{employee.email}</DialogDescription>
@@ -123,6 +128,9 @@ const EditEmployeeDialog = ({ open, onOpenChange, employee, onChanged }) => {
           <div className="pt-2 border-t border-[#E2E8F0] dark:border-[#27272A]">
             <Label className="flex items-center gap-2"><KeyRound className="w-4 h-4" /> Change Password (optional, min 6 chars)</Label>
             <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Leave empty to keep current password" data-testid="edit-emp-password" className="mt-1" />
+          </div>
+          <div className="pt-2 border-t border-[#E2E8F0] dark:border-[#27272A]">
+            <PermissionsSection value={permissions} onChange={setPermissions} />
           </div>
         </div>
         <DialogFooter className="flex-col sm:flex-row gap-2">

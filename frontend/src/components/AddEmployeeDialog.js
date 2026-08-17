@@ -10,12 +10,14 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { UserPlus } from 'lucide-react';
+import PermissionsSection from '@/components/PermissionsSection';
 
 const ROLES = [
   { value: 'employee', label: 'Employee' },
   { value: 'manager', label: 'Manager' },
   { value: 'hr', label: 'HR' },
   { value: 'admin', label: 'Admin' },
+  { value: 'hd', label: 'HD (Head of Dispatch)' },
 ];
 
 const AddEmployeeDialog = ({ open, onOpenChange, onCreated }) => {
@@ -48,6 +50,7 @@ const AddEmployeeDialog = ({ open, onOpenChange, onCreated }) => {
         phone: form.phone || null,
         role: form.role,
         salary: form.salary ? Number(form.salary) : null,
+        permissions,
       };
       // Department is a free-text field — store as designation_id when text
       const { data } = await api.post('/employees', payload);
@@ -70,7 +73,7 @@ const AddEmployeeDialog = ({ open, onOpenChange, onCreated }) => {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
-      <DialogContent className="max-w-lg" data-testid="add-employee-dialog">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="add-employee-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="w-5 h-5" /> Add New Employee
@@ -122,6 +125,13 @@ const AddEmployeeDialog = ({ open, onOpenChange, onCreated }) => {
           <p className="text-xs text-[#64748B]">
             The employee will use this email and password to sign in. You can share credentials via chat or email.
           </p>
+          <div className="pt-2 border-t border-[#E2E8F0] dark:border-[#27272A]">
+            <PermissionsSection value={permissions} onChange={setPermissions} />
+            <p className="text-xs text-[#64748B] mt-2">
+              Note: <b>Super Admin</b> and <b>HD</b> automatically get all Dispatch access — no need to check individual boxes.
+              Department does NOT grant access; only explicit permissions do.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>

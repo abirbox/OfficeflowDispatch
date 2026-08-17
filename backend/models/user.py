@@ -34,6 +34,7 @@ class UserResponse(BaseModel):
     branch_id: Optional[str] = None
     department_id: Optional[str] = None
     designation_id: Optional[str] = None
+    permissions: list = []
     status: str
     created_at: str
 
