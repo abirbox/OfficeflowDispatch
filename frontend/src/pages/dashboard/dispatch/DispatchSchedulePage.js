@@ -68,21 +68,28 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
   const [actions, setActions] = useState([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [statusBusy, setStatusBusy] = useState(null);
+  const [statusDialog, setStatusDialog] = useState(null); // { row, status }
+  const [statusRemarks, setStatusRemarks] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = { page, limit };
       Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
       const { data } = await api.get('/dispatch/schedules', { params });
       setRows(data.items || []);
       setTotal(data.total || 0);
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
-    finally { setLoading(false); }
+    } catch (e) { if (!silent) toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    finally { if (!silent) setLoading(false); }
   }, [page, limit, filters]);
 
   useEffect(() => { load(); }, [load]);
+  // Real-time polling — every 10s, silent so no loading flicker
+  useEffect(() => {
+    const t = setInterval(() => load(true), 10_000);
+    return () => clearInterval(t);
+  }, [load]);
   useEffect(() => {
     api.get('/dispatch/clients').then(r => setClients(r.data)).catch(() => {});
     api.get('/dispatch/vendors').then(r => setVendors(r.data)).catch(() => {});
@@ -172,15 +179,23 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
     finally { setActionsLoading(false); }
   };
-  const applyStatus = async (row, status) => {
+  const openStatusDialog = (row, status) => {
+    if (status === row.shift_status) return;
+    setStatusDialog({ row, status });
+    setStatusRemarks('');
+  };
+  const applyStatus = async () => {
+    if (!statusDialog) return;
+    const { row, status } = statusDialog;
     setStatusBusy(`${row.id}:${status}`);
     try {
-      const payload = { shift_status: status };
+      const payload = { shift_status: status, remarks: statusRemarks || null };
       const now = new Date().toTimeString().slice(0, 5);
       if (status === 'Check-in' || status === 'Late Clock In') payload.actual_check_in = now;
       if (status === 'Checkout' || status === 'Late Clock Out' || status === 'Early Clock Out') payload.actual_check_out = now;
       await api.post(`/dispatch/schedules/${row.id}/status`, payload);
       toast.success(`${status} recorded by ${user?.name}`);
+      setStatusDialog(null); setStatusRemarks('');
       load();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
     finally { setStatusBusy(null); }
@@ -375,7 +390,7 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
                   {canEdit && r.shift_status !== 'Cancelled' ? (
                     <Select
                       value={r.shift_status}
-                      onValueChange={(v) => applyStatus(r, v)}
+                      onValueChange={(v) => openStatusDialog(r, v)}
                       disabled={!!statusBusy && statusBusy.startsWith(`${r.id}:`)}
                     >
                       <SelectTrigger
@@ -547,6 +562,43 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfDialog(null)}>Cancel</Button>
             <Button onClick={submitConfirm} className="bg-[#4F46E5] hover:bg-[#4338CA]" data-testid="save-confirmation">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Status change remark dialog */}
+      <Dialog open={!!statusDialog} onOpenChange={(o) => !o && setStatusDialog(null)}>
+        <DialogContent data-testid="status-remark-dialog">
+          <DialogHeader>
+            <DialogTitle>Update Status</DialogTitle>
+            <DialogDescription>
+              Changing status to <b>{statusDialog?.status}</b>. Add an optional remark for the history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Remark (optional)</Label>
+              <Textarea
+                value={statusRemarks}
+                onChange={(e) => setStatusRemarks(e.target.value)}
+                placeholder="e.g. Officer arrived 5 minutes late due to traffic"
+                data-testid="status-remark-input"
+              />
+            </div>
+            <p className="text-xs text-[#64748B]">
+              Recorded by: <b>{user?.name}</b> ({user?.role})
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusDialog(null)}>Cancel</Button>
+            <Button
+              onClick={applyStatus}
+              className="bg-[#4F46E5] hover:bg-[#4338CA]"
+              disabled={!!statusBusy}
+              data-testid="save-status-remark"
+            >
+              {statusBusy ? 'Saving…' : `Confirm ${statusDialog?.status || ''}`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

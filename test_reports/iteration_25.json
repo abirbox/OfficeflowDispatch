@@ -1,0 +1,65 @@
+{
+  "summary": "Iteration 25 tested the three new Dispatch capabilities on the public preview URL. Status remark Save/Cancel, unified Full History, silent Schedule polling, Dashboard 10-second refresh, entity detail contracts/redaction/PDF, UI drill-down, selected-column download, and existing status/confirmation/row-menu flows were exercised. Backend pytest passed 10/12 tests. Three product defects remain: entity-detail item rows omit calculated billing_amount/cost_amount/margin, selected CSV columns are reordered instead of preserving the requested order, and the column picker's first untick action behaves inversely.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/dispatch/reports/entity-detail",
+        "issue": "For super_admin, each item includes duty_rate, billing_rate, and work_order_number but omits required calculated billing_amount, cost_amount, and margin fields. Summary calculations are correct.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/api/dispatch/reports/export/entity-detail",
+        "issue": "columns=date,officer_name,duty_hours returns header Date,Hours,Officer instead of the requested/required Date,Officer,Hours order. Selection is converted to a set and then filtered in server ALL_COLS order."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Entity detail ColumnPickerDialog",
+        "issue": "All columns appear checked when pickedCols is empty, but clicking an initially checked column does not untick it. The clicked column stays checked and every other column becomes unchecked, so the normal 'untick a few columns' workflow is broken.",
+        "selector": "[data-testid='column-picker-dialog'] [data-testid='col-shift_type'] [role='checkbox']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Entity-detail selected-column CSV export",
+        "issue": "The downloaded file contains only the selected headers, but the backend reorders Date,Officer,Hours to Date,Hours,Officer rather than respecting picker/request order.",
+        "affected_selectors": ["detail-pick-columns", "detail-export-csv"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dispatch_iter25.py",
+    "/app/test_reports/pytest/dispatch_iter25.xml"
+  ],
+  "action_items": [
+    "Calculate and add billing_amount, cost_amount, and margin to each privileged entity-detail item before returning it; continue stripping all financial fields for users without dispatch.financial.view.",
+    "Preserve the caller's comma-separated columns order when building entity-detail CSV/PDF columns.",
+    "Initialize/normalize column picker selection to the full allowed column list so clicking a checked checkbox actually removes only that key; keep financial keys permission-aware.",
+    "Retest API contracts and the browser column-picker workflow after fixes."
+  ],
+  "critical_code_review_comments": [
+    "report_entity_detail computes per-item hours and summary financial totals but never assigns per-row billing_amount/cost_amount/margin, creating a mismatch with the documented day-by-day financial schema.",
+    "export_entity_detail uses set(columns.split(',')) and filters ALL_COLS, which discards user-selected order.",
+    "ColumnPickerDialog overloads picked=[] to mean 'all selected', while toggle() starts from an empty Set; the first checkbox click therefore adds the clicked key instead of removing it.",
+    "/app/backend/routes/dispatch.py is over 1,200 lines and should be split into focused schedule, entity, dashboard, and report route modules per maintainability guidance."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dispatch_iter25.py",
+    "/app/test_reports/iteration_25.json"
+  ],
+  "success_rate": {
+    "backend": "83.3% (10/12 targeted pytest tests passed)",
+    "frontend": "90% of targeted flows passed; column-picker untick behavior failed"
+  },
+  "seed_data_creation": "Created isolated TEST_I25 and TEST_UI25 clients, vendors, officers, post sites, schedules, and report-only employees. Schedules and employees were deleted; reference entities were deactivated through the product's soft-delete endpoints.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use the public preview URL and admin@example.com credentials from /app/memory/test_credentials.md. Backend entity validation, all four entity types, summary totals, redaction, PDF, status-history remark, and permission-aware export passed. UI status Cancel and Save/history passed; Schedule polling updated to Absent within 12s without Loading flicker; Dashboard checked-in ticker refreshed after an external status change (shared data changed 0 to 2 during the interval, so verify monotonic change plus target API persistence rather than exact global delta). By Officer detail and restricted-user financial hiding passed. The picker downloaded only Date/Hours/Officer after working around its first-toggle defect. Some exploratory all-tab scripts stopped on test-harness timing/case assertions; backend contracts for all four entity types passed and the shared row/dialog implementation was reviewed, but a clean all-four-tab UI rerun is recommended after fixes.",
+  "rca_of_the_issue": "Per-item financial values are accumulated only into summary variables and never written to each row. Export column parsing loses order by converting requested keys to a set. Picker state uses an ambiguous empty array as both 'no explicit selection' and 'all selected', while toggle operates on the literal empty set, causing inverse behavior on the first click."
+}

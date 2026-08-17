@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="12" time="2.983" timestamp="2026-08-17T11:18:42.344387+00:00" hostname="agent-env-d7671c39-82c9-46ef-b091-345c37021dd2"><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_validation" time="1.586" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_contract_for_each_entity[officer]" time="0.054" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_contract_for_each_entity[client]" time="0.043" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_contract_for_each_entity[vendor]" time="0.045" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_contract_for_each_entity[post_site]" time="0.051" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_summary_aggregates" time="0.046" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_admin_item_financial_fields_and_values" time="0.044"><failure message="KeyError: 'billing_amount'">backend/tests/test_dispatch_iter25.py:207: in test_entity_detail_admin_item_financial_fields_and_values
+    assert item["billing_amount"] == 280.0
+           ^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'billing_amount'</failure></testcase><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_financial_redaction_without_permission" time="0.040" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_selected_columns_csv" time="0.055"><failure message="AssertionError: assert ['Date', 'Hours', 'Officer'] == ['Date', 'Officer', 'Hours']&#10;  &#10;  At index 1 diff: 'Hours' != 'Officer'&#10;  &#10;  Full diff:&#10;    [&#10;        'Date',&#10;  +     'Hours',...&#10;  &#10;  ...Full output truncated (3 lines hidden), use '-vv' to show">backend/tests/test_dispatch_iter25.py:232: in test_entity_detail_selected_columns_csv
+    assert rows[0] == ["Date", "Officer", "Hours"]
+E   AssertionError: assert ['Date', 'Hours', 'Officer'] == ['Date', 'Officer', 'Hours']
+E     
+E     At index 1 diff: 'Hours' != 'Officer'
+E     
+E     Full diff:
+E       [
+E           'Date',
+E     +     'Hours',...
+E     
+E     ...Full output truncated (3 lines hidden), use '-vv' to show</failure></testcase><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_pdf_export" time="0.045" /><testcase classname="tests.test_dispatch_iter25" name="test_entity_detail_export_financial_columns_redacted" time="0.036" /><testcase classname="tests.test_dispatch_iter25" name="test_status_remark_is_persisted_to_full_history" time="0.581" /></testsuite></testsuites>

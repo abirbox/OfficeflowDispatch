@@ -4,7 +4,7 @@ import { Users, Building2, MapPin, Shield, CheckCircle2, Clock, XCircle, AlertTr
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
 
-const REFRESH_MS = 30_000; // Live ticker refresh interval
+const REFRESH_MS = 10_000; // Live ticker refresh interval
 
 const Card = ({ icon: Icon, label, value, color, testid }) => (
   <div className="bg-white dark:bg-[#18181B] border border-[#E2E8F0] dark:border-[#27272A] rounded-xl p-5" data-testid={testid}>
@@ -58,7 +58,7 @@ const DispatchDashboardPage = () => {
     <div className="space-y-6" data-testid="dispatch-dashboard">
       <div>
         <h1 className="text-3xl font-bold text-[#0F172A] dark:text-[#FAFAFA]">Dispatch Dashboard</h1>
-        <p className="text-sm text-[#64748B] dark:text-[#A1A1AA] mt-1">Today's dispatch operations at a glance · live refresh every 30s</p>
+        <p className="text-sm text-[#64748B] dark:text-[#A1A1AA] mt-1">Today's dispatch operations at a glance · live refresh every 10s</p>
       </div>
 
       {/* Officer Attendance Ticker */}

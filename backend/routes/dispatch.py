@@ -981,6 +981,165 @@ async def report_by_vendor(request: Request, db=Depends(get_db),
     return {"items": out, "date_from": date_from, "date_to": date_to, "count": len(out)}
 
 
+@router.get("/reports/entity-detail")
+async def report_entity_detail(
+    request: Request, db=Depends(get_db),
+    entity_type: str = None, entity_id: str = None,
+    date_from: str = None, date_to: str = None,
+):
+    """Full per-entity report: all schedules for one officer/client/vendor/post_site,
+    day-by-day with actual check-in/out, remarks, hours, rates, billing.
+    Financial fields still respect dispatch.financial.view.
+    """
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.view")
+    if entity_type not in ("officer", "client", "vendor", "post_site"):
+        raise HTTPException(400, "entity_type must be officer|client|vendor|post_site")
+    if not entity_id:
+        raise HTTPException(400, "entity_id is required")
+    date_from, date_to = _validate_date_range(date_from, date_to)
+    fin = has_permission(user, "dispatch.financial.view")
+
+    key = {"officer": "officer_id", "client": "client_id",
+           "vendor": "vendor_id", "post_site": "post_site_id"}[entity_type]
+    q = {key: entity_id, "date": {"$gte": date_from, "$lte": date_to}}
+    docs = await db.dispatch_schedules.find(q).sort([("date", 1), ("start_time", 1)]).to_list(2000)
+
+    # Enrich names
+    off_ids = {d.get("officer_id") for d in docs if d.get("officer_id")}
+    ven_ids = {d.get("vendor_id") for d in docs if d.get("vendor_id")}
+    cli_ids = {d.get("client_id") for d in docs if d.get("client_id")}
+    post_ids = {d.get("post_site_id") for d in docs if d.get("post_site_id")}
+    officers = await _resolve_names(db, off_ids, "dispatch_officers")
+    vendors = await _resolve_names(db, ven_ids, "dispatch_vendors")
+    clients = await _resolve_names(db, cli_ids, "dispatch_clients")
+    posts_map = {}
+    if post_ids:
+        obj_ids = [ObjectId(i) for i in post_ids if ObjectId.is_valid(i)]
+        pdocs = await db.dispatch_post_sites.find(
+            {"_id": {"$in": obj_ids}}, {"name": 1, "post_pin": 1}
+        ).to_list(len(obj_ids))
+        posts_map = {str(p["_id"]): p for p in pdocs}
+
+    items = []
+    total_hours = 0.0; total_bill = 0.0; total_cost = 0.0
+    completed = absent = late = early = cancelled = 0
+    for d in docs:
+        row = strip_financial(_doc_out(d), user)
+        row["officer_name"] = officers.get(d.get("officer_id", ""))
+        row["vendor_name"] = vendors.get(d.get("vendor_id", ""))
+        row["client_name"] = clients.get(d.get("client_id", ""))
+        p = posts_map.get(d.get("post_site_id", ""), {})
+        row["post_site_name"] = p.get("name")
+        row["post_pin"] = p.get("post_pin")
+        h = d.get("duty_hours") or 0
+        if fin:
+            b = h * (d.get("billing_rate") or 0)
+            c = h * (d.get("duty_rate") or 0)
+            row["billing_amount"] = round(b, 2)
+            row["cost_amount"] = round(c, 2)
+            row["margin"] = round(b - c, 2)
+            total_bill += b; total_cost += c
+        items.append(row)
+        total_hours += h
+        s = d.get("shift_status")
+        if s == "Completed": completed += 1
+        elif s == "Absent": absent += 1
+        elif s == "Late Clock In": late += 1
+        elif s == "Early Clock Out": early += 1
+        elif s == "Cancelled": cancelled += 1
+
+    # Entity header
+    header = {}
+    coll_map = {"officer": "dispatch_officers", "client": "dispatch_clients",
+                "vendor": "dispatch_vendors", "post_site": "dispatch_post_sites"}
+    entity = await db[coll_map[entity_type]].find_one({"_id": _oid(entity_id)})
+    if entity:
+        header = _doc_out(entity)
+
+    summary = {
+        "total_shifts": len(items),
+        "completed": completed, "absent": absent, "late": late,
+        "early_checkout": early, "cancelled": cancelled,
+        "total_hours": round(total_hours, 2),
+    }
+    if fin:
+        summary["billing_amount"] = round(total_bill, 2)
+        summary["cost_amount"] = round(total_cost, 2)
+        summary["margin"] = round(total_bill - total_cost, 2)
+
+    return {
+        "entity_type": entity_type, "entity_id": entity_id,
+        "entity": header,
+        "date_from": date_from, "date_to": date_to,
+        "summary": summary,
+        "items": items,
+        "count": len(items),
+    }
+
+
+@router.get("/reports/export/entity-detail")
+async def export_entity_detail(
+    request: Request, db=Depends(get_db),
+    entity_type: str = None, entity_id: str = None,
+    date_from: str = None, date_to: str = None,
+    format: str = "csv",
+    columns: str = None,  # comma-separated column keys
+):
+    """CSV / PDF export of the entity-detail report with user-selected columns."""
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.export")
+    fmt = format.lower()
+    if fmt not in ("csv", "pdf"):
+        raise HTTPException(400, "format must be 'csv' or 'pdf'")
+
+    data = await report_entity_detail(request, db,
+        entity_type=entity_type, entity_id=entity_id,
+        date_from=date_from, date_to=date_to)
+
+    ALL_COLS = [
+        ("Date", "date"), ("Shift", "shift_type"),
+        ("Start", "start_time"), ("End", "end_time"),
+        ("Actual Check-In", "actual_check_in"), ("Actual Check-Out", "actual_check_out"),
+        ("Hours", "duty_hours"),
+        ("Officer", "officer_name"), ("Post Pin", "post_pin"), ("Post Site", "post_site_name"),
+        ("Client", "client_name"), ("Vendor", "vendor_name"),
+        ("Confirmation", "confirmation_status"), ("Confirmation Method", "confirmation_method"),
+        ("Shift Status", "shift_status"), ("Remarks", "remarks"),
+        ("Last Modified By", "last_modified_by_name"),
+        ("Last Modified Action", "last_modified_action"),
+    ]
+    fin = has_permission(user, "dispatch.financial.view")
+    if fin:
+        ALL_COLS += [("Duty Rate", "duty_rate"), ("Billing Rate", "billing_rate"),
+                     ("Work Order", "work_order_number")]
+
+    if columns:
+        # Preserve caller's order (comma-separated); drop unknown/duplicate keys
+        seen = set()
+        wanted_order = []
+        for k in columns.split(","):
+            k = k.strip()
+            if k and k not in seen:
+                seen.add(k); wanted_order.append(k)
+        col_map = {key: label for label, key in ALL_COLS}
+        cols = [(col_map[k], k) for k in wanted_order if k in col_map]
+        if not cols:
+            cols = ALL_COLS
+    else:
+        cols = ALL_COLS
+
+    title = f"{entity_type.title()} Detail — {data['entity'].get('name') or data['entity'].get('post_pin') or entity_id}"
+    subtitle = f"{data['date_from']} → {data['date_to']} · {data['count']} shift(s)"
+    if fmt == "csv":
+        body = build_csv(data["items"], cols)
+        return StreamingResponse(io.BytesIO(body), media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="dispatch-{entity_type}-{entity_id}-{data["date_from"]}-{data["date_to"]}.csv"'})
+    body = build_pdf(title, subtitle, data["items"], cols)
+    return StreamingResponse(io.BytesIO(body), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="dispatch-{entity_type}-{entity_id}-{data["date_from"]}-{data["date_to"]}.pdf"'})
+
+
 # ---------- Export (CSV / PDF) — respects financial permission ----------
 REPORT_TYPES = {
     "schedules": {
