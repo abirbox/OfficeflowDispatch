@@ -22,15 +22,19 @@ const ROLES = [
 
 const AddEmployeeDialog = ({ open, onOpenChange, onCreated }) => {
   const [busy, setBusy] = useState(false);
+  const [permissions, setPermissions] = useState([]);
   const [form, setForm] = useState({
     email: '', password: 'Welcome@123', name: '', phone: '',
     role: 'employee', department: '', salary: '',
   });
 
-  const reset = () => setForm({
-    email: '', password: 'Welcome@123', name: '', phone: '',
-    role: 'employee', department: '', salary: '',
-  });
+  const reset = () => {
+    setForm({
+      email: '', password: 'Welcome@123', name: '', phone: '',
+      role: 'employee', department: '', salary: '',
+    });
+    setPermissions([]);
+  };
 
   const submit = async () => {
     if (!form.email || !form.name) {
@@ -134,7 +138,7 @@ const AddEmployeeDialog = ({ open, onOpenChange, onCreated }) => {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+          <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy} className="bg-[#4F46E5] hover:bg-[#4338CA]" data-testid="submit-new-emp">
             {busy ? 'Creating…' : 'Create Employee'}
           </Button>

@@ -1,0 +1,39 @@
+{
+  "summary": "Frontend verification of the Employees permissions fix completed against the public preview URL. The original 'permissions is not defined' crash is resolved: Employees loaded for 3 seconds with no runtime overlay, console error, page error, or failed HTTP response. Permissions Select All/Clear All, employee creation with 3 Dispatch permissions, list/search, edit prefill, and all four requested regression routes passed. One minor state-reset defect remains when closing Add Employee with its Cancel button.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AddEmployeeDialog",
+        "issue": "Cancel closes the dialog without resetting entered form values or selected permissions; reopening retained TEST_RESET_NOT_SUBMITTED and dispatch.schedule.view. This risks unintentionally carrying permissions into a later employee creation.",
+        "selector": "button[name='Cancel'] in [data-testid='add-employee-dialog']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Route the Add Employee Cancel button through the dialog's reset-aware close handler, or call reset() before onOpenChange(false), then verify a reopened dialog has blank fields and 0 selected permissions."
+  ],
+  "critical_code_review_comments": [
+    "AddEmployeeDialog's Radix onOpenChange wrapper resets on an emitted close event, but the custom Cancel button directly invokes the parent onOpenChange(false), bypassing that wrapper and reset().",
+    "Code review only: the Department field is not persisted. form.department is excluded from the create payload, and the follow-up PUT sends only {address: null}; the comment claiming it stores free text as designation_id does not match the implementation."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_15.json"
+  ],
+  "success_rate": {
+    "backend": "Not tested (frontend-only request)",
+    "frontend": "94% (all requested core flows passed; 1 additional reset subflow failed)"
+  },
+  "seed_data_creation": "Created active employee test.ui.permissions.1786954621@example.com (TEST_UI_Permissions_1786954621) with dispatch.dashboard.view, dispatch.schedule.view, and dispatch.clients.view for end-to-end create/edit verification.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use admin credentials from /app/memory/test_credentials.md and the public URL from frontend/.env. Verified /dashboard/employees plus /dashboard, /dashboard/dispatch, /dashboard/dispatch/schedules, and /dashboard/dispatch/clients. The created TEST_UI employee remains available to verify Edit permission prefill. Retest only Add Employee Cancel -> reopen reset behavior after the minor fix.",
+  "rca_of_the_issue": "Reproduction: open Add Employee, enter a name, select dispatch.schedule.view, click the dialog footer Cancel, then reopen. Both values remain. Root cause: the footer Cancel handler at AddEmployeeDialog.js:141 calls the parent onOpenChange(false) directly, while reset() is only called in submit() and in the Dialog component's own onOpenChange wrapper at line 79. The direct parent callback does not pass through that wrapper."
+}
