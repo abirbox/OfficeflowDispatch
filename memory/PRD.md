@@ -54,6 +54,7 @@ Super Admin, Admin, HR, Manager, **HD (Head of Dispatch — full Dispatch access
   - Routes registered under `/dashboard/dispatch/*`
 
 ## Changelog
+- **2026-02 (iter 17)**: **Dispatch Reports + Role Restriction + Dispatch Calendar** — 5 report endpoints (schedules + by-officer/post/client/vendor) with 3-month cap and permission-aware CSV/PDF export; only super_admin may create or promote to `hd`/`super_admin`; new Calendar page with Day/Week/Month views and click-through details. 13/13 backend + 100% frontend functional tests passed.
 - **2026-02 (iter 14)**: **Dispatch Management System** — permission infrastructure, Clients/Vendors/Officers/Post Sites CRUD, Dispatch Schedule with filters + pagination + officer conflict detection, confirmation flow with append-only history, dashboard stats, financial-field response redaction, HD role bypass. 22/23 backend tests pass; the one create-response permission bug was fixed same-iteration.
 - **2026-02 (iter 12)**: Office address auto-geocoding via Nominatim. Bulk Shift Assign.
 - **2026-02 (iter 10)**: Removed Companies, Reports menu, LiveMap office markers, Employee Edit dialog.

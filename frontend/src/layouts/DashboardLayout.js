@@ -68,6 +68,8 @@ const dispatchNavigation = [
   { name: 'Dispatch Dashboard', href: '/dashboard/dispatch', icon: LayoutDashboard, perm: 'dispatch.dashboard.view' },
   { name: "Today's Dispatch", href: '/dashboard/dispatch/today', icon: ClipboardList, perm: 'dispatch.schedule.view' },
   { name: 'Dispatch Schedule', href: '/dashboard/dispatch/schedules', icon: Truck, perm: 'dispatch.schedule.view' },
+  { name: 'Dispatch Calendar', href: '/dashboard/dispatch/calendar', icon: Calendar, perm: 'dispatch.schedule.view' },
+  { name: 'Dispatch Reports', href: '/dashboard/dispatch/reports', icon: BarChart3, perm: 'dispatch.reports.view' },
   { name: 'Clients', href: '/dashboard/dispatch/clients', icon: Building2, perm: 'dispatch.clients.view' },
   { name: 'Vendors', href: '/dashboard/dispatch/vendors', icon: Building2, perm: 'dispatch.vendors.view' },
   { name: 'Security Officers', href: '/dashboard/dispatch/officers', icon: Shield, perm: 'dispatch.officers.view' },

@@ -1,7 +1,9 @@
 """Dispatch module routes — Clients, Vendors, Officers, Post Sites, Schedule + Confirmation."""
 from fastapi import APIRouter, HTTPException, Request, Depends, Query
+from fastapi.responses import StreamingResponse
 from datetime import datetime, timezone, date, timedelta
 from bson import ObjectId
+import io
 import uuid
 
 from models.dispatch import (
@@ -17,6 +19,7 @@ from utils.permissions import (
     has_permission, require_permission, strip_financial,
     ALL_PERMISSIONS, FINANCIAL_FIELDS,
 )
+from utils.dispatch_reports import build_csv, build_pdf
 
 router = APIRouter(prefix="/dispatch", tags=["Dispatch"])
 
@@ -642,3 +645,333 @@ async def dashboard_stats(request: Request, db=Depends(get_db)):
             open_positions += (req - assigned)
     stats["open_positions"] = open_positions
     return stats
+
+
+
+# =====================================================================
+#  REPORTS
+# =====================================================================
+def _validate_date_range(date_from: str | None, date_to: str | None):
+    """Enforce 3-month cap on report queries. Returns (from, to) strings."""
+    today = date.today()
+    if not date_to:
+        date_to = today.isoformat()
+    if not date_from:
+        date_from = (today - timedelta(days=30)).isoformat()
+    try:
+        d_from = datetime.fromisoformat(date_from).date()
+        d_to = datetime.fromisoformat(date_to).date()
+    except Exception:
+        raise HTTPException(400, "Invalid date format, expected YYYY-MM-DD")
+    if d_to < d_from:
+        raise HTTPException(400, "date_to must be on or after date_from")
+    if (d_to - d_from).days > 92:
+        raise HTTPException(400, "Report date range cannot exceed 3 months (92 days).")
+    return date_from, date_to
+
+
+async def _resolve_names(db, ids: set[str], coll: str, key: str = "name") -> dict[str, str]:
+    if not ids:
+        return {}
+    obj_ids = []
+    for i in ids:
+        try:
+            obj_ids.append(ObjectId(i))
+        except Exception:
+            pass
+    docs = await db[coll].find({"_id": {"$in": obj_ids}}, {key: 1, "post_pin": 1}).to_list(len(obj_ids) or 1)
+    out = {}
+    for d in docs:
+        out[str(d["_id"])] = d.get(key) or d.get("post_pin") or "—"
+    return out
+
+
+@router.get("/reports/schedules")
+async def report_schedules(
+    request: Request, db=Depends(get_db),
+    officer_id: str = None, vendor_id: str = None, client_id: str = None,
+    post_site_id: str = None, post_pin: str = None,
+    date_from: str = None, date_to: str = None,
+    shift_type: str = None, confirmation_status: str = None, shift_status: str = None,
+    limit: int = 50,
+):
+    """Latest-N raw dispatch records for the report page (default 50)."""
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.view")
+    date_from, date_to = _validate_date_range(date_from, date_to)
+    limit = min(max(limit, 1), 1000)
+
+    q = {"date": {"$gte": date_from, "$lte": date_to}}
+    if officer_id: q["officer_id"] = officer_id
+    if vendor_id: q["vendor_id"] = vendor_id
+    if client_id: q["client_id"] = client_id
+    if post_site_id: q["post_site_id"] = post_site_id
+    if shift_type: q["shift_type"] = shift_type
+    if confirmation_status: q["confirmation_status"] = confirmation_status
+    if shift_status: q["shift_status"] = shift_status
+    if post_pin:
+        posts = await db.dispatch_post_sites.find(
+            {"post_pin": {"$regex": post_pin, "$options": "i"}}, {"_id": 1}
+        ).to_list(500)
+        pids = [str(p["_id"]) for p in posts]
+        q["post_site_id"] = {"$in": pids} if pids else "__none__"
+
+    docs = await db.dispatch_schedules.find(q).sort([("date", -1), ("start_time", -1)]).limit(limit).to_list(limit)
+
+    officer_ids = {d.get("officer_id") for d in docs if d.get("officer_id")}
+    vendor_ids = {d.get("vendor_id") for d in docs if d.get("vendor_id")}
+    client_ids = {d.get("client_id") for d in docs if d.get("client_id")}
+    post_ids = {d.get("post_site_id") for d in docs if d.get("post_site_id")}
+
+    officers = await _resolve_names(db, officer_ids, "dispatch_officers")
+    vendors = await _resolve_names(db, vendor_ids, "dispatch_vendors")
+    clients = await _resolve_names(db, client_ids, "dispatch_clients")
+    post_docs = await db.dispatch_post_sites.find(
+        {"_id": {"$in": [ObjectId(i) for i in post_ids if ObjectId.is_valid(i)]}},
+        {"name": 1, "post_pin": 1}
+    ).to_list(len(post_ids) or 1)
+    posts_map = {str(p["_id"]): p for p in post_docs}
+
+    out = []
+    for d in docs:
+        row = strip_financial(_doc_out(d), user)
+        row["officer_name"] = officers.get(d.get("officer_id", ""))
+        row["vendor_name"] = vendors.get(d.get("vendor_id", ""))
+        row["client_name"] = clients.get(d.get("client_id", ""))
+        p = posts_map.get(d.get("post_site_id", ""), {})
+        row["post_site_name"] = p.get("name")
+        row["post_pin"] = p.get("post_pin")
+        out.append(row)
+
+    return {"items": out, "date_from": date_from, "date_to": date_to, "count": len(out)}
+
+
+async def _aggregate_by(db, group_field: str, date_from: str, date_to: str, include_financial: bool):
+    """Aggregation helper for by-officer / by-post / by-client / by-vendor."""
+    pipeline = [
+        {"$match": {"date": {"$gte": date_from, "$lte": date_to}}},
+        {"$group": {
+            "_id": f"${group_field}",
+            "total_shifts": {"$sum": 1},
+            "completed": {"$sum": {"$cond": [{"$eq": ["$shift_status", "Completed"]}, 1, 0]}},
+            "absent": {"$sum": {"$cond": [{"$eq": ["$shift_status", "Absent"]}, 1, 0]}},
+            "late": {"$sum": {"$cond": [{"$eq": ["$shift_status", "Late Clock In"]}, 1, 0]}},
+            "early_checkout": {"$sum": {"$cond": [{"$eq": ["$shift_status", "Early Clock Out"]}, 1, 0]}},
+            "cancelled": {"$sum": {"$cond": [{"$eq": ["$shift_status", "Cancelled"]}, 1, 0]}},
+            "confirmed": {"$sum": {"$cond": [{"$eq": ["$confirmation_status", "Confirmed"]}, 1, 0]}},
+            "total_hours": {"$sum": {"$ifNull": ["$duty_hours", 0]}},
+            **({"billing_amount": {"$sum": {"$multiply": [{"$ifNull": ["$duty_hours", 0]}, {"$ifNull": ["$billing_rate", 0]}]}},
+                "cost_amount": {"$sum": {"$multiply": [{"$ifNull": ["$duty_hours", 0]}, {"$ifNull": ["$duty_rate", 0]}]}}}
+               if include_financial else {}),
+        }},
+        {"$sort": {"total_shifts": -1}},
+    ]
+    return await db.dispatch_schedules.aggregate(pipeline).to_list(1000)
+
+
+@router.get("/reports/by-officer")
+async def report_by_officer(request: Request, db=Depends(get_db),
+                            date_from: str = None, date_to: str = None):
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.view")
+    date_from, date_to = _validate_date_range(date_from, date_to)
+    fin = has_permission(user, "dispatch.financial.view")
+    rows = await _aggregate_by(db, "officer_id", date_from, date_to, fin)
+    ids = {r["_id"] for r in rows if r["_id"]}
+    officers = await _resolve_names(db, ids, "dispatch_officers")
+    out = []
+    for r in rows:
+        oid = r.pop("_id")
+        r["officer_id"] = oid
+        r["officer_name"] = officers.get(oid, "—")
+        r["total_hours"] = round(r.get("total_hours", 0), 2)
+        r["attendance_pct"] = round(100.0 * r["completed"] / r["total_shifts"], 1) if r["total_shifts"] else 0
+        if fin:
+            r["billing_amount"] = round(r.get("billing_amount", 0), 2)
+            r["cost_amount"] = round(r.get("cost_amount", 0), 2)
+            r["margin"] = round(r["billing_amount"] - r["cost_amount"], 2)
+        out.append(r)
+    return {"items": out, "date_from": date_from, "date_to": date_to, "count": len(out)}
+
+
+@router.get("/reports/by-post-site")
+async def report_by_post_site(request: Request, db=Depends(get_db),
+                              date_from: str = None, date_to: str = None):
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.view")
+    date_from, date_to = _validate_date_range(date_from, date_to)
+    fin = has_permission(user, "dispatch.financial.view")
+    rows = await _aggregate_by(db, "post_site_id", date_from, date_to, fin)
+    ids = {r["_id"] for r in rows if r["_id"]}
+    obj_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
+    post_docs = await db.dispatch_post_sites.find(
+        {"_id": {"$in": obj_ids}}, {"name": 1, "post_pin": 1, "required_officers": 1}
+    ).to_list(len(obj_ids) or 1)
+    posts_map = {str(p["_id"]): p for p in post_docs}
+    out = []
+    for r in rows:
+        pid = r.pop("_id")
+        p = posts_map.get(pid, {})
+        r["post_site_id"] = pid
+        r["post_site_name"] = p.get("name", "—")
+        r["post_pin"] = p.get("post_pin", "—")
+        r["required_officers"] = p.get("required_officers", 0)
+        r["total_hours"] = round(r.get("total_hours", 0), 2)
+        r["coverage_pct"] = round(100.0 * r["completed"] / r["total_shifts"], 1) if r["total_shifts"] else 0
+        if fin:
+            r["billing_amount"] = round(r.get("billing_amount", 0), 2)
+            r["cost_amount"] = round(r.get("cost_amount", 0), 2)
+            r["margin"] = round(r["billing_amount"] - r["cost_amount"], 2)
+        out.append(r)
+    return {"items": out, "date_from": date_from, "date_to": date_to, "count": len(out)}
+
+
+@router.get("/reports/by-client")
+async def report_by_client(request: Request, db=Depends(get_db),
+                           date_from: str = None, date_to: str = None):
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.view")
+    date_from, date_to = _validate_date_range(date_from, date_to)
+    fin = has_permission(user, "dispatch.financial.view")
+    rows = await _aggregate_by(db, "client_id", date_from, date_to, fin)
+    ids = {r["_id"] for r in rows if r["_id"]}
+    clients = await _resolve_names(db, ids, "dispatch_clients")
+    out = []
+    for r in rows:
+        cid = r.pop("_id")
+        r["client_id"] = cid
+        r["client_name"] = clients.get(cid, "—")
+        r["total_hours"] = round(r.get("total_hours", 0), 2)
+        if fin:
+            r["billing_amount"] = round(r.get("billing_amount", 0), 2)
+            r["cost_amount"] = round(r.get("cost_amount", 0), 2)
+            r["margin"] = round(r["billing_amount"] - r["cost_amount"], 2)
+        out.append(r)
+    return {"items": out, "date_from": date_from, "date_to": date_to, "count": len(out)}
+
+
+@router.get("/reports/by-vendor")
+async def report_by_vendor(request: Request, db=Depends(get_db),
+                           date_from: str = None, date_to: str = None):
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.view")
+    date_from, date_to = _validate_date_range(date_from, date_to)
+    fin = has_permission(user, "dispatch.financial.view")
+    rows = await _aggregate_by(db, "vendor_id", date_from, date_to, fin)
+    ids = {r["_id"] for r in rows if r["_id"]}
+    vendors = await _resolve_names(db, ids, "dispatch_vendors")
+    out = []
+    for r in rows:
+        vid = r.pop("_id")
+        r["vendor_id"] = vid
+        r["vendor_name"] = vendors.get(vid, "—")
+        r["total_hours"] = round(r.get("total_hours", 0), 2)
+        if fin:
+            r["billing_amount"] = round(r.get("billing_amount", 0), 2)
+            r["cost_amount"] = round(r.get("cost_amount", 0), 2)
+            r["margin"] = round(r["billing_amount"] - r["cost_amount"], 2)
+        out.append(r)
+    return {"items": out, "date_from": date_from, "date_to": date_to, "count": len(out)}
+
+
+# ---------- Export (CSV / PDF) — respects financial permission ----------
+REPORT_TYPES = {
+    "schedules": {
+        "fetcher": report_schedules,
+        "title": "Dispatch Schedules",
+        "cols_base": [
+            ("Date", "date"), ("Officer", "officer_name"), ("Post Pin", "post_pin"),
+            ("Post Site", "post_site_name"), ("Client", "client_name"), ("Vendor", "vendor_name"),
+            ("Shift", "shift_type"), ("Start", "start_time"), ("End", "end_time"),
+            ("Hours", "duty_hours"), ("Confirmation", "confirmation_status"), ("Status", "shift_status"),
+        ],
+        "cols_fin": [("Duty Rate", "duty_rate"), ("Billing Rate", "billing_rate"), ("Work Order", "work_order_number")],
+    },
+    "by-officer": {
+        "title": "Report by Officer",
+        "cols_base": [
+            ("Officer", "officer_name"), ("Shifts", "total_shifts"), ("Completed", "completed"),
+            ("Absent", "absent"), ("Late", "late"), ("Early Out", "early_checkout"),
+            ("Cancelled", "cancelled"), ("Confirmed", "confirmed"),
+            ("Total Hours", "total_hours"), ("Attendance %", "attendance_pct"),
+        ],
+        "cols_fin": [("Billing", "billing_amount"), ("Cost", "cost_amount"), ("Margin", "margin")],
+    },
+    "by-post-site": {
+        "title": "Report by Post Site",
+        "cols_base": [
+            ("Post Pin", "post_pin"), ("Post Site", "post_site_name"),
+            ("Required", "required_officers"), ("Shifts", "total_shifts"),
+            ("Completed", "completed"), ("Absent", "absent"), ("Late", "late"),
+            ("Total Hours", "total_hours"), ("Coverage %", "coverage_pct"),
+        ],
+        "cols_fin": [("Billing", "billing_amount"), ("Cost", "cost_amount"), ("Margin", "margin")],
+    },
+    "by-client": {
+        "title": "Report by Client",
+        "cols_base": [
+            ("Client", "client_name"), ("Shifts", "total_shifts"), ("Completed", "completed"),
+            ("Absent", "absent"), ("Late", "late"), ("Total Hours", "total_hours"),
+        ],
+        "cols_fin": [("Billing", "billing_amount"), ("Cost", "cost_amount"), ("Margin", "margin")],
+    },
+    "by-vendor": {
+        "title": "Report by Vendor",
+        "cols_base": [
+            ("Vendor", "vendor_name"), ("Shifts", "total_shifts"), ("Completed", "completed"),
+            ("Absent", "absent"), ("Late", "late"), ("Total Hours", "total_hours"),
+        ],
+        "cols_fin": [("Billing", "billing_amount"), ("Cost", "cost_amount"), ("Margin", "margin")],
+    },
+}
+
+
+@router.get("/reports/export")
+async def export_report(
+    request: Request, db=Depends(get_db),
+    type: str = "schedules",
+    format: str = "csv",
+    date_from: str = None, date_to: str = None,
+    officer_id: str = None, vendor_id: str = None, client_id: str = None,
+    post_site_id: str = None, post_pin: str = None,
+    shift_type: str = None, confirmation_status: str = None, shift_status: str = None,
+):
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.reports.export")
+    if type not in REPORT_TYPES:
+        raise HTTPException(400, f"Unknown report type: {type}")
+    fmt = format.lower()
+    if fmt not in ("csv", "pdf"):
+        raise HTTPException(400, "format must be 'csv' or 'pdf'")
+
+    # Fetch data by calling the report handler internally
+    if type == "schedules":
+        data = await report_schedules(request, db,
+            officer_id=officer_id, vendor_id=vendor_id, client_id=client_id,
+            post_site_id=post_site_id, post_pin=post_pin,
+            date_from=date_from, date_to=date_to,
+            shift_type=shift_type, confirmation_status=confirmation_status,
+            shift_status=shift_status, limit=1000)
+    elif type == "by-officer":
+        data = await report_by_officer(request, db, date_from=date_from, date_to=date_to)
+    elif type == "by-post-site":
+        data = await report_by_post_site(request, db, date_from=date_from, date_to=date_to)
+    elif type == "by-client":
+        data = await report_by_client(request, db, date_from=date_from, date_to=date_to)
+    elif type == "by-vendor":
+        data = await report_by_vendor(request, db, date_from=date_from, date_to=date_to)
+
+    spec = REPORT_TYPES[type]
+    cols = list(spec["cols_base"])
+    if has_permission(user, "dispatch.financial.view"):
+        cols += spec["cols_fin"]
+
+    subtitle = f"{data['date_from']} → {data['date_to']} · {data['count']} record(s)"
+    if fmt == "csv":
+        body = build_csv(data["items"], cols)
+        return StreamingResponse(io.BytesIO(body), media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="dispatch-{type}-{data["date_from"]}-{data["date_to"]}.csv"'})
+    else:
+        body = build_pdf(spec["title"], subtitle, data["items"], cols)
+        return StreamingResponse(io.BytesIO(body), media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="dispatch-{type}-{data["date_from"]}-{data["date_to"]}.pdf"'})

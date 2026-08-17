@@ -14,15 +14,27 @@ router = APIRouter(prefix="/employees", tags=["Employees"])
 def get_db(request: Request):
     return request.app.state.db
 
+PRIVILEGED_ROLES = {"super_admin", "hd"}
+
 async def require_admin(request: Request, db):
     user = await get_current_user(request, db)
     if user.get("role") not in ["super_admin", "admin", "hr"]:
         raise HTTPException(status_code=403, detail="Admin/HR access required")
     return user
 
+
+def _ensure_can_assign_role(current_user: dict, target_role: str):
+    """Only super_admin may create/promote to super_admin or hd."""
+    if target_role in PRIVILEGED_ROLES and current_user.get("role") != "super_admin":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only Super Admin can assign the '{target_role}' role."
+        )
+
 @router.post("", response_model=EmployeeResponse)
 async def create_employee(employee: EmployeeCreate, request: Request, db = Depends(get_db)):
     user = await require_admin(request, db)
+    _ensure_can_assign_role(user, employee.role)
     
     email_lower = employee.email.lower()
     existing = await db.users.find_one({"email": email_lower})
@@ -197,6 +209,12 @@ async def update_employee(employee_id: str, employee: EmployeeUpdate, request: R
     if not existing:
         raise HTTPException(status_code=404, detail="Employee not found")
     
+    # Guard privileged role assignment/demotion
+    if employee.role is not None and employee.role != existing.get("role"):
+        _ensure_can_assign_role(user, employee.role)
+    # Prevent non-super-admins from editing a super_admin/hd account at all
+    if existing.get("role") in PRIVILEGED_ROLES and user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can modify a privileged account.")
     update_data = {k: v for k, v in employee.model_dump().items() if v is not None}
     # Hash password on the fly when admin resets it
     if update_data.get("password"):
