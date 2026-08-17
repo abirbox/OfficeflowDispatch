@@ -1,0 +1,85 @@
+{
+  "summary": "Tested Dispatch attendance actions and audit history against the public preview URL, plus the existing Dispatch regression suite. Backend regression passed 23/23; the new suite passed core status mutation, invalid-status protection, RBAC, ordering, lifecycle logging, and actor metadata, but 3/5 tests failed because Created and Deleted history records omit the required remarks key. Frontend verified all five quick actions, toast/refresh/highlight behavior, Last Modified By, action history, confirmation, cancel, and delete. Two high-impact frontend defects remain: edits are audited as an unchanged status instead of Edited, and long-reference rows reproducibly trigger a blocking ResizeObserver runtime overlay.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/dispatch/schedules/{id}/actions",
+        "issue": "Created and Deleted records omit the required remarks field entirely, so action entries do not share the documented response contract. Reproduced for both lifecycle events; all other expected actor/action/value/timestamp fields were present.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dispatch schedule table",
+        "issue": "Creating a schedule whose client/vendor/post names are long reproducibly raises 'ResizeObserver loop completed with undelivered notifications'; the webpack runtime overlay covers the page and intercepts all subsequent clicks. Reproduced in two independent runs. A short-reference schedule did not trigger it.",
+        "selector": "#webpack-dev-server-client-overlay",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Dispatch dialogs",
+        "issue": "Create/Edit, Confirmation, and Action History dialogs emit Radix warnings because DialogContent has no DialogDescription or explicit aria-describedby strategy.",
+        "selector": "[data-testid='actions-dialog']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Edit schedule audit logging",
+        "issue": "Editing only remarks succeeds visually, but Last Modified By shows 'Not Started' and Action History adds 'Not Started → Not Started' instead of an Edited entry. openEdit copies the full row, submit sends shift_status unchanged, and the backend therefore takes its status-change logging branch.",
+        "affected_selectors": ["[data-testid^='edit-']", "[data-testid='save-schedule']", "[data-testid='actions-dialog']"]
+      },
+      {
+        "flow": "Edited action transition rendering",
+        "issue": "Backend Edited entries store old_value/new_value as objects, but Action History explicitly renders transitions only when old_value is not an object; once edit logging is corrected, field changes will still have no old-to-new presentation.",
+        "affected_selectors": ["[data-testid='actions-dialog']"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Dispatch Schedule",
+        "issues": [
+          "The 16-column table has no minimum width and compresses headers, Quick Actions, and Last Modified By into narrow wrapped columns; long names destabilize layout and contribute to the reproduced ResizeObserver failure.",
+          "Date filters and schedule date use native input[type='date'] instead of the shared shadcn calendar/date-picker pattern."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dispatch_actions_iter18.py",
+    "/app/test_reports/pytest/dispatch_actions_iter18.xml",
+    "/app/backend/tests/test_dispatch_iter14.py",
+    "/app/test_reports/pytest/dispatch_existing_regression_iter18.xml"
+  ],
+  "action_items": [
+    "Include remarks (null when absent) in manually inserted Created and Deleted dispatch_action_history documents so every GET /actions entry has the same schema.",
+    "Sanitize the frontend edit payload to send only editable fields and omit shift_status unless the user actually changes status; verify the resulting action is Edited.",
+    "Render object-valued Edited old_value/new_value snapshots as readable field-level transitions in Action History.",
+    "Prevent the long-content table resize loop (for example, stable table min-width/column sizing and safe text wrapping) and ensure runtime errors never leave a full-page interaction-blocking overlay.",
+    "Add DialogDescription/aria-describedby to all Dispatch dialogs and data-testid attributes to Cancel/Delete/dialog controls."
+  ],
+  "critical_code_review_comments": [
+    "create_schedule and delete_schedule manually build audit documents rather than calling one normalized audit-document helper, which caused the missing remarks schema regression.",
+    "openEdit uses setForm({ ...row }) and submit PUTs that enriched response object back to the API; this leaks immutable/computed fields such as shift_status into edit semantics.",
+    "Status mutation and audit insertion are separate MongoDB writes without a transaction; a partial failure can update a schedule without history or write history without a successful final mutation, violating the 'every action logged' invariant.",
+    "ShiftStatusUpdate accepts arbitrary actual_check_in/actual_check_out strings without HH:MM validation even though schedule times are validated.",
+    "routes/dispatch.py is over 1,000 lines and should be split into focused entity, schedule, audit, confirmation, dashboard, and report routers/services."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dispatch_actions_iter18.py",
+    "/app/test_reports/pytest/dispatch_actions_iter18.xml",
+    "/app/test_reports/pytest/dispatch_existing_regression_iter18.xml",
+    "/app/test_reports/iteration_18.json"
+  ],
+  "success_rate": {
+    "backend": "89% (25/28 tests passed; 3 failures are the same missing-remarks contract defect)",
+    "frontend": "80% feature-group completion; all five quick actions and create/confirm/cancel/delete passed, while edit auditing and long-name create interaction failed"
+  },
+  "seed_data_creation": "Backend tests created isolated TEST_ clients/vendors/officers/post sites, four schedules, and a view-only employee; schedules/employees were deleted and reference entities were soft-deactivated. UI temporary schedules were deleted. The existing seeded schedule was returned to Late Clock In, but its immutable audit history now includes QA Check-in, Checkout, and restore actions.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use admin credentials from /app/memory/test_credentials.md and the public REACT_APP_BACKEND_URL. Re-run test_dispatch_actions_iter18.py after fixing audit schemas. UI quick actions all work. Re-test a remarks-only Edit and assert Last Modified/Action History say Edited, then create a row using long entity names to confirm no ResizeObserver overlay. Existing Dispatch regression remains green at 23/23.",
+  "rca_of_the_issue": "Backend RCA: dispatch.py create_schedule (manual insert around lines 437-446) and delete_schedule (around lines 636-641) omit remarks, unlike _log_action, producing inconsistent history documents. Edit RCA: DispatchSchedulePage.openEdit copies the complete schedule row; submit sends it unchanged, including shift_status. update_schedule sees shift_status in the payload and logs that value even when old and new statuses match, so a normal edit is mislabeled. History rendering then hides dictionary transitions through the typeof old_value !== 'object' condition. The blocking overlay is triggered by repeated table reflow after inserting long reference names and is surfaced by the development runtime as a full-page ResizeObserver error overlay."
+}

@@ -165,3 +165,10 @@ class ConfirmationUpdate(BaseModel):
     confirmation_status: str
     confirmation_method: Optional[str] = None
     remarks: Optional[str] = None
+
+
+class ShiftStatusUpdate(BaseModel):
+    shift_status: str
+    actual_check_in: Optional[str] = None
+    actual_check_out: Optional[str] = None
+    remarks: Optional[str] = None

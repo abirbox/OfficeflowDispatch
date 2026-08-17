@@ -117,6 +117,7 @@ async def startup():
         await db.dispatch_schedules.create_index("client_id")
         await db.dispatch_schedules.create_index("vendor_id")
         await db.dispatch_confirmation_history.create_index("schedule_id")
+        await db.dispatch_action_history.create_index([("schedule_id", 1), ("at", -1)])
         logger.info("Database indexes created")
         
         await seed_admin()

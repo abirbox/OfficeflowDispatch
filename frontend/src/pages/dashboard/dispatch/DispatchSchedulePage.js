@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/sonner';
-import { Plus, Filter, X, ChevronLeft, ChevronRight, Phone, MessageSquare, History } from 'lucide-react';
+import { Plus, Filter, X, ChevronLeft, ChevronRight, Phone, History, ClipboardList } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
 import { CONFIRM_BADGE } from './_shared';
@@ -16,6 +16,18 @@ const SHIFT_TYPES = ['Morning', 'Afternoon', 'Evening', 'Night'];
 const CONF_STATUSES = ['Not Confirmed', 'Pending', 'Confirmed', 'Declined', 'No Response'];
 const CONF_METHODS = ['Call', 'Text', 'Call + Text'];
 const SHIFT_STATUSES = ['Not Started', 'Check-in', 'Checkout', 'Late Clock In', 'Early Clock Out', 'Late Clock Out', 'Absent', 'Completed', 'Cancelled'];
+const QUICK_ACTIONS = ['Check-in', 'Checkout', 'Late Clock In', 'Late Clock Out', 'Absent'];
+const STATUS_BADGE_MAP = {
+  'Check-in': 'bg-emerald-100 text-emerald-700',
+  'Checkout': 'bg-sky-100 text-sky-700',
+  'Late Clock In': 'bg-amber-100 text-amber-700',
+  'Late Clock Out': 'bg-amber-100 text-amber-800',
+  'Early Clock Out': 'bg-orange-100 text-orange-700',
+  'Absent': 'bg-rose-100 text-rose-700',
+  'Completed': 'bg-emerald-100 text-emerald-800',
+  'Cancelled': 'bg-slate-200 text-slate-600',
+  'Not Started': 'bg-slate-100 text-slate-600',
+};
 
 const emptyFilters = {
   officer_id: '', vendor_id: '', client_id: '', post_site_id: '', post_pin: '',
@@ -54,6 +66,9 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
   const [confForm, setConfForm] = useState({ confirmation_status: 'Confirmed', confirmation_method: 'Call', remarks: '' });
   const [historyDialog, setHistoryDialog] = useState(null);
   const [history, setHistory] = useState([]);
+  const [actionsDialog, setActionsDialog] = useState(null);
+  const [actions, setActions] = useState([]);
+  const [statusBusy, setStatusBusy] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,7 +96,22 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
     setForm({ date: today, shift_type: 'Morning', start_time: '08:00', end_time: '16:00' });
     setDialogOpen(true);
   };
-  const openEdit = (row) => { setEditing(row); setForm({ ...row }); setDialogOpen(true); };
+  const openEdit = (row) => {
+    setEditing(row);
+    // Only pick editable fields — do NOT include shift_status, actual_check_in/out or
+    // any computed/enriched fields. They should be changed via Quick Actions, not Edit.
+    setForm({
+      date: row.date, shift_type: row.shift_type,
+      start_time: row.start_time, end_time: row.end_time,
+      client_id: row.client_id, vendor_id: row.vendor_id,
+      post_site_id: row.post_site_id, officer_id: row.officer_id,
+      duty_rate: row.duty_rate ?? null,
+      billing_rate: row.billing_rate ?? null,
+      work_order_number: row.work_order_number ?? null,
+      remarks: row.remarks ?? '',
+    });
+    setDialogOpen(true);
+  };
 
   const submit = async () => {
     // client-side required check
@@ -89,8 +119,21 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
       if (!form[k]) { toast.error(`${k.replace('_', ' ')} is required`); return; }
     }
     try {
-      if (editing) await api.put(`/dispatch/schedules/${editing.id}`, form);
-      else await api.post('/dispatch/schedules', form);
+      if (editing) {
+        // Send only actually-changed fields so audit stays clean
+        const changed = {};
+        Object.entries(form).forEach(([k, v]) => {
+          const oldV = editing[k];
+          const same = (oldV ?? null) === (v ?? null) || (oldV === '' && !v) || (v === '' && !oldV);
+          if (!same) changed[k] = v === '' ? null : v;
+        });
+        if (Object.keys(changed).length === 0) {
+          toast.info('No changes to save'); setDialogOpen(false); return;
+        }
+        await api.put(`/dispatch/schedules/${editing.id}`, changed);
+      } else {
+        await api.post('/dispatch/schedules', form);
+      }
       toast.success(`Schedule ${editing ? 'updated' : 'created'}`);
       setDialogOpen(false); load();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
@@ -118,6 +161,24 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
     setHistoryDialog(row);
     try { const { data } = await api.get(`/dispatch/schedules/${row.id}/history`); setHistory(data); }
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+  };
+  const openActions = async (row) => {
+    setActionsDialog(row);
+    try { const { data } = await api.get(`/dispatch/schedules/${row.id}/actions`); setActions(data); }
+    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+  };
+  const applyStatus = async (row, status) => {
+    setStatusBusy(`${row.id}:${status}`);
+    try {
+      const payload = { shift_status: status };
+      const now = new Date().toTimeString().slice(0, 5);
+      if (status === 'Check-in' || status === 'Late Clock In') payload.actual_check_in = now;
+      if (status === 'Checkout' || status === 'Late Clock Out' || status === 'Early Clock Out') payload.actual_check_out = now;
+      await api.post(`/dispatch/schedules/${row.id}/status`, payload);
+      toast.success(`${status} recorded by ${user?.name}`);
+      load();
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    finally { setStatusBusy(null); }
   };
 
   const setF = (k, v) => { setFilters({ ...filters, [k]: v }); setPage(1); };
@@ -225,7 +286,7 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
 
       {/* Table */}
       <div className="bg-white dark:bg-[#18181B] border border-[#E2E8F0] dark:border-[#27272A] rounded-xl overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[1400px] text-sm table-auto">
           <thead className="bg-[#F8FAFC] dark:bg-[#0F0F11] text-left text-xs uppercase tracking-wider text-[#64748B]">
             <tr>
               <th className="px-3 py-3">Date</th><th className="px-3 py-3">Officer</th>
@@ -235,7 +296,9 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
               <th className="px-3 py-3">Hours</th>
               {canFinancial && <><th className="px-3 py-3">Duty Rate</th><th className="px-3 py-3">Billing</th></>}
               <th className="px-3 py-3">Confirmation</th><th className="px-3 py-3">Status</th>
-              <th className="px-3 py-3 text-right">Actions</th>
+              <th className="px-3 py-3">Quick Actions</th>
+              <th className="px-3 py-3">Last Modified By</th>
+              <th className="px-3 py-3 text-right">Manage</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E2E8F0] dark:divide-[#27272A]">
@@ -256,10 +319,44 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
                 <td className="px-3 py-2">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${CONFIRM_BADGE[r.confirmation_status] || 'bg-slate-100 text-slate-600'}`}>{r.confirmation_status}</span>
                 </td>
-                <td className="px-3 py-2 text-xs">{r.shift_status}</td>
+                <td className="px-3 py-2">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_BADGE_MAP[r.shift_status] || 'bg-slate-100 text-slate-600'}`}>{r.shift_status}</span>
+                </td>
+                <td className="px-3 py-2">
+                  {canEdit ? (
+                    <div className="flex flex-wrap gap-1">
+                      {QUICK_ACTIONS.map((a) => (
+                        <button
+                          key={a}
+                          onClick={() => applyStatus(r, a)}
+                          disabled={statusBusy === `${r.id}:${a}` || r.shift_status === a || r.shift_status === 'Cancelled'}
+                          className={`px-2 py-1 rounded text-[11px] font-medium border transition ${
+                            r.shift_status === a
+                              ? 'bg-[#4F46E5] text-white border-[#4F46E5]'
+                              : 'border-[#E2E8F0] dark:border-[#27272A] text-[#334155] dark:text-[#E4E4E7] hover:bg-[#F1F5F9] dark:hover:bg-[#27272A]'
+                          } ${statusBusy === `${r.id}:${a}` ? 'opacity-50 cursor-wait' : ''} disabled:opacity-40`}
+                          data-testid={`action-${a.replace(/\s+/g, '-').toLowerCase()}-${r.id}`}
+                        >
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                  ) : <span className="text-xs text-[#64748B]">—</span>}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {r.last_modified_by_name ? (
+                    <div>
+                      <div className="font-medium text-[#334155] dark:text-[#E4E4E7]">{r.last_modified_by_name}</div>
+                      <div className="text-[10px] text-[#64748B]">
+                        {r.last_modified_action || 'Modified'} · {(r.last_modified_at || '').slice(0, 16).replace('T', ' ')}
+                      </div>
+                    </div>
+                  ) : <span className="text-[#64748B]">—</span>}
+                </td>
                 <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
-                  {canConfirm && <Button size="sm" variant="outline" onClick={() => openConfirm(r)} data-testid={`confirm-${r.id}`}><Phone className="w-3 h-3" /></Button>}
-                  {canHistory && <Button size="sm" variant="outline" onClick={() => openHistory(r)} data-testid={`history-${r.id}`}><History className="w-3 h-3" /></Button>}
+                  {canConfirm && <Button size="sm" variant="outline" onClick={() => openConfirm(r)} data-testid={`confirm-${r.id}`} title="Confirm"><Phone className="w-3 h-3" /></Button>}
+                  <Button size="sm" variant="outline" onClick={() => openActions(r)} data-testid={`actions-${r.id}`} title="Action history"><ClipboardList className="w-3 h-3" /></Button>
+                  {canHistory && <Button size="sm" variant="outline" onClick={() => openHistory(r)} data-testid={`history-${r.id}`} title="Confirmation history"><History className="w-3 h-3" /></Button>}
                   {canEdit && <Button size="sm" variant="outline" onClick={() => openEdit(r)} data-testid={`edit-${r.id}`}>Edit</Button>}
                   {canCancel && r.shift_status !== 'Cancelled' && <Button size="sm" variant="outline" onClick={() => cancelSchedule(r)}>Cancel</Button>}
                   {canDelete && <Button size="sm" variant="outline" onClick={() => deleteSchedule(r)}>Del</Button>}
@@ -380,6 +477,52 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
                   <div className="text-xs text-[#64748B] mt-1">{h.contacted_by_role} · {h.method || '—'}</div>
                   <div className="mt-1"><span className={`px-2 py-0.5 rounded-full text-xs ${CONFIRM_BADGE[h.status] || 'bg-slate-100'}`}>{h.status}</span></div>
                   {h.remarks && <div className="text-sm mt-2 text-[#334155] dark:text-[#E4E4E7]">{h.remarks}</div>}
+                </div>
+              ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Full Action History dialog — check-ins, checkouts, edits, cancels, confirmations */}
+      <Dialog open={!!actionsDialog} onOpenChange={(o) => !o && setActionsDialog(null)}>
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto" data-testid="actions-dialog">
+          <DialogHeader>
+            <DialogTitle>Action History</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {actions.length === 0 ? <p className="text-sm text-[#64748B]">No actions recorded yet.</p>
+              : actions.map(a => (
+                <div key={a.id} className="border border-[#E2E8F0] dark:border-[#27272A] rounded-lg p-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-[#0F172A] dark:text-[#FAFAFA]">{a.actor_name || 'Unknown'}</span>
+                    <span className="text-xs text-[#64748B]">{a.at?.slice(0, 16).replace('T', ' ')}</span>
+                  </div>
+                  <div className="text-xs text-[#64748B] mt-1">Role: {a.actor_role || '—'}</div>
+                  <div className="mt-2">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE_MAP[a.action] || 'bg-indigo-100 text-indigo-700'}`}>
+                      {a.action}
+                    </span>
+                  </div>
+                  {(a.old_value != null || a.new_value != null) && typeof a.old_value !== 'object' && typeof a.new_value !== 'object' && (
+                    <div className="text-xs text-[#64748B] mt-2">
+                      <span className="line-through">{a.old_value ?? '—'}</span>
+                      {' → '}
+                      <span className="font-medium text-[#334155] dark:text-[#E4E4E7]">{a.new_value ?? '—'}</span>
+                    </div>
+                  )}
+                  {(typeof a.old_value === 'object' && a.old_value !== null) && (
+                    <div className="text-xs text-[#64748B] mt-2 space-y-0.5">
+                      {Object.keys(a.new_value || {}).map((k) => (
+                        <div key={k}>
+                          <span className="text-[10px] uppercase tracking-wider">{k.replace(/_/g, ' ')}: </span>
+                          <span className="line-through">{String(a.old_value?.[k] ?? '—')}</span>
+                          {' → '}
+                          <span className="font-medium text-[#334155] dark:text-[#E4E4E7]">{String(a.new_value?.[k] ?? '—')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {a.remarks && <div className="text-sm mt-2 text-[#334155] dark:text-[#E4E4E7] italic">"{a.remarks}"</div>}
                 </div>
               ))}
           </div>

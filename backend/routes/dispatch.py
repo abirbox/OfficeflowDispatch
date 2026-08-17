@@ -11,7 +11,7 @@ from models.dispatch import (
     VendorCreate, VendorUpdate,
     OfficerCreate, OfficerUpdate, OFFICER_STATUSES,
     PostSiteCreate, PostSiteUpdate,
-    ScheduleCreate, ScheduleUpdate, ConfirmationUpdate,
+    ScheduleCreate, ScheduleUpdate, ConfirmationUpdate, ShiftStatusUpdate,
     SHIFT_TYPES, SHIFT_STATUSES, CONFIRMATION_STATUSES, CONFIRMATION_METHODS,
 )
 from utils.auth import get_current_user
@@ -351,6 +351,33 @@ async def _check_conflict(db, officer_id: str, sched_date: str,
     return None
 
 
+async def _log_action(db, schedule_id: str, actor: dict, action: str,
+                      old_value=None, new_value=None, remarks: str = None):
+    """Append to dispatch_action_history and update last_modified_* on schedule."""
+    now = _now()
+    await db.dispatch_action_history.insert_one({
+        "schedule_id": schedule_id,
+        "action": action,
+        "old_value": old_value,
+        "new_value": new_value,
+        "remarks": remarks,
+        "actor_id": str(actor.get("_id")),
+        "actor_name": actor.get("name"),
+        "actor_role": actor.get("role"),
+        "at": now,
+    })
+    await db.dispatch_schedules.update_one(
+        {"_id": _oid(schedule_id)},
+        {"$set": {
+            "last_modified_by_id": str(actor.get("_id")),
+            "last_modified_by_name": actor.get("name"),
+            "last_modified_action": action,
+            "last_modified_at": now,
+        }}
+    )
+
+
+
 @router.post("/schedules")
 async def create_schedule(payload: ScheduleCreate, request: Request, db=Depends(get_db)):
     user = await get_current_user(request, db)
@@ -402,7 +429,22 @@ async def create_schedule(payload: ScheduleCreate, request: Request, db=Depends(
     doc["overtime_minutes"] = 0
     doc["created_by"] = str(user["_id"]); doc["created_at"] = _now()
     doc["updated_by"] = str(user["_id"]); doc["updated_at"] = _now()
+    doc["last_modified_by_id"] = str(user["_id"])
+    doc["last_modified_by_name"] = user.get("name")
+    doc["last_modified_action"] = "Created"
+    doc["last_modified_at"] = _now()
     res = await db.dispatch_schedules.insert_one(doc)
+    await db.dispatch_action_history.insert_one({
+        "schedule_id": str(res.inserted_id),
+        "action": "Created",
+        "old_value": None,
+        "new_value": doc.get("shift_status"),
+        "remarks": None,
+        "actor_id": str(user["_id"]),
+        "actor_name": user.get("name"),
+        "actor_role": user.get("role"),
+        "at": _now(),
+    })
     saved = await db.dispatch_schedules.find_one({"_id": res.inserted_id})
     return strip_financial(_doc_out(saved), user)
 
@@ -500,7 +542,8 @@ async def update_schedule(sid: str, payload: ScheduleUpdate, request: Request, d
     existing = await db.dispatch_schedules.find_one({"_id": _oid(sid)})
     if not existing: raise HTTPException(404, "Schedule not found")
 
-    upd = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Use exclude_unset so callers can explicitly clear nullable fields (remarks/etc.)
+    upd = payload.model_dump(exclude_unset=True)
 
     # Financial field guard
     fin_write = has_permission(user, "dispatch.financial.view")
@@ -534,6 +577,39 @@ async def update_schedule(sid: str, payload: ScheduleUpdate, request: Request, d
 
     upd["updated_by"] = str(user["_id"]); upd["updated_at"] = _now()
     await db.dispatch_schedules.update_one({"_id": _oid(sid)}, {"$set": upd})
+    # Log only meaningful user-editable changes
+    old_snapshot = {k: existing.get(k) for k in upd.keys() if k not in ("updated_by", "updated_at", "duty_hours")}
+    new_snapshot = {k: upd.get(k) for k in upd.keys() if k not in ("updated_by", "updated_at", "duty_hours")}
+    if "shift_status" in upd:
+        await _log_action(db, sid, user, upd["shift_status"],
+                          old_value=existing.get("shift_status"), new_value=upd["shift_status"])
+    elif new_snapshot:
+        await _log_action(db, sid, user, "Edited",
+                          old_value=old_snapshot, new_value=new_snapshot)
+    return strip_financial(_doc_out(await db.dispatch_schedules.find_one({"_id": _oid(sid)})), user)
+
+
+@router.post("/schedules/{sid}/status")
+async def update_shift_status(sid: str, payload: ShiftStatusUpdate, request: Request, db=Depends(get_db)):
+    """Quick action endpoint used by the Dispatch Schedule row buttons.
+    Records who performed the action and appends to the action history."""
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.schedule.edit")
+    if payload.shift_status not in SHIFT_STATUSES:
+        raise HTTPException(400, f"Shift status must be one of {SHIFT_STATUSES}")
+    existing = await db.dispatch_schedules.find_one({"_id": _oid(sid)})
+    if not existing: raise HTTPException(404, "Schedule not found")
+    old_status = existing.get("shift_status")
+    upd = {"shift_status": payload.shift_status,
+           "updated_by": str(user["_id"]), "updated_at": _now()}
+    if payload.actual_check_in is not None:
+        upd["actual_check_in"] = payload.actual_check_in
+    if payload.actual_check_out is not None:
+        upd["actual_check_out"] = payload.actual_check_out
+    await db.dispatch_schedules.update_one({"_id": _oid(sid)}, {"$set": upd})
+    await _log_action(db, sid, user, payload.shift_status,
+                      old_value=old_status, new_value=payload.shift_status,
+                      remarks=payload.remarks)
     return strip_financial(_doc_out(await db.dispatch_schedules.find_one({"_id": _oid(sid)})), user)
 
 
@@ -541,11 +617,14 @@ async def update_schedule(sid: str, payload: ScheduleUpdate, request: Request, d
 async def cancel_schedule(sid: str, request: Request, db=Depends(get_db)):
     user = await get_current_user(request, db)
     require_permission(user, "dispatch.schedule.cancel")
-    r = await db.dispatch_schedules.update_one(
+    existing = await db.dispatch_schedules.find_one({"_id": _oid(sid)})
+    if not existing: raise HTTPException(404, "Schedule not found")
+    await db.dispatch_schedules.update_one(
         {"_id": _oid(sid)},
         {"$set": {"shift_status": "Cancelled", "updated_by": str(user["_id"]), "updated_at": _now()}}
     )
-    if r.matched_count == 0: raise HTTPException(404, "Schedule not found")
+    await _log_action(db, sid, user, "Cancelled",
+                      old_value=existing.get("shift_status"), new_value="Cancelled")
     return {"message": "Schedule cancelled"}
 
 
@@ -553,9 +632,28 @@ async def cancel_schedule(sid: str, request: Request, db=Depends(get_db)):
 async def delete_schedule(sid: str, request: Request, db=Depends(get_db)):
     user = await get_current_user(request, db)
     require_permission(user, "dispatch.schedule.delete")
-    r = await db.dispatch_schedules.delete_one({"_id": _oid(sid)})
-    if r.deleted_count == 0: raise HTTPException(404, "Schedule not found")
+    existing = await db.dispatch_schedules.find_one({"_id": _oid(sid)})
+    if not existing: raise HTTPException(404, "Schedule not found")
+    # Log BEFORE deleting the schedule (history is a separate collection)
+    await db.dispatch_action_history.insert_one({
+        "schedule_id": sid, "action": "Deleted",
+        "old_value": existing.get("shift_status"), "new_value": None,
+        "remarks": None,
+        "actor_id": str(user["_id"]), "actor_name": user.get("name"),
+        "actor_role": user.get("role"), "at": _now(),
+    })
+    await db.dispatch_schedules.delete_one({"_id": _oid(sid)})
     return {"message": "Schedule deleted"}
+
+
+@router.get("/schedules/{sid}/actions")
+async def schedule_actions(sid: str, request: Request, db=Depends(get_db)):
+    """Full action history for a schedule — every check-in, edit, cancel etc."""
+    user = await get_current_user(request, db)
+    require_permission(user, "dispatch.schedule.view")
+    docs = await db.dispatch_action_history.find({"schedule_id": sid}) \
+        .sort("at", -1).to_list(500)
+    return [_doc_out(d) for d in docs]
 
 
 # ---------- Confirmation ----------
@@ -597,6 +695,10 @@ async def confirm_schedule(sid: str, payload: ConfirmationUpdate, request: Reque
         "contacted_by_department_id": user.get("department_id"),
         "contacted_at": now,
     })
+    await _log_action(db, sid, user, f"Confirmation: {payload.confirmation_status}",
+                      old_value=sched.get("confirmation_status"),
+                      new_value=payload.confirmation_status,
+                      remarks=payload.remarks)
     return {"message": "Confirmation updated"}
 
 

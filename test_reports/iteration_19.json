@@ -1,0 +1,54 @@
+{
+  "summary": "Targeted Dispatch attendance re-verification completed against the public preview URL. The requested 28-test backend regression passed 28/28, including Created/Deleted remarks:null contracts. All requested frontend flows passed: long-name create without ResizeObserver overlay, remarks-only Edited audit with field transition, no-op edit without PUT, Check-in/Checkout history and row updates, Confirm, Cancel, and Delete. One additional edit edge defect was found: clearing existing remarks sends remarks:null, but PUT ignores explicit null and records an empty Edited diff.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PUT /api/dispatch/schedules/{id}",
+        "issue": "Explicit remarks:null does not clear existing remarks. The endpoint still returns 200, leaves the old value persisted, and appends an Edited history entry with old_value:{} and new_value:{} instead of a remarks transition. Reproduced with an isolated schedule."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Clear schedule remarks in Edit dialog",
+        "issue": "The frontend correctly converts an emptied remarks field to null, but the backend drops null values; therefore users cannot clear remarks and Action History shows an empty Edited audit.",
+        "affected_selectors": ["[data-testid^='edit-']", "[data-testid='sf-remarks']", "[data-testid='save-schedule']", "[data-testid='actions-dialog']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dispatch_actions_iter18.py",
+    "/app/backend/tests/test_dispatch_iter14.py",
+    "/app/backend/tests/test_dispatch_edit_clear_iter19.py",
+    "/app/test_reports/pytest/dispatch_targeted_regression_iter19.xml",
+    "/app/test_reports/pytest/dispatch_edit_clear_iter19.xml"
+  ],
+  "action_items": [
+    "Update ScheduleUpdate handling to distinguish omitted fields from explicitly supplied null values (for example, model_dump(exclude_unset=true)) so remarks and other nullable editable fields can be cleared and audited accurately.",
+    "Avoid creating an Edited action when the effective update contains no user-editable changes."
+  ],
+  "critical_code_review_comments": [
+    "update_schedule builds upd by filtering every None value from payload.model_dump(), so it loses the distinction between an omitted field and an explicit null sent to clear a nullable field; the frontend intentionally sends null for cleared inputs.",
+    "update_schedule always recomputes duty_hours and logs Edited even when no meaningful editable key survives normalization, allowing empty old/new audit snapshots from direct API requests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dispatch_edit_clear_iter19.py",
+    "/app/test_reports/pytest/dispatch_actions_iter19.xml",
+    "/app/test_reports/pytest/dispatch_targeted_regression_iter19.xml",
+    "/app/test_reports/pytest/dispatch_edit_clear_iter19.xml",
+    "/app/test_reports/iteration_19.json"
+  ],
+  "success_rate": {
+    "backend": "96.6% overall (28/28 requested regression tests passed; 0/1 additional remarks-clearing edge test passed)",
+    "frontend": "100% of requested targeted flows passed"
+  },
+  "seed_data_creation": "Backend suites and the UI flow created isolated TEST_ Dispatch references and schedules. Schedules were permanently deleted; reference entities were soft-deactivated during cleanup. The UI used four >25-character reference names and removed its schedule after Confirm/Cancel/Delete regression.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The three iteration_18 HIGH fixes are verified. Re-run test_dispatch_edit_clear_iter19.py after changing PUT null handling; expected result is remarks cleared to null and latest Edited history old_value.remarks=<original>, new_value.remarks=null. Requested 28-test suite is green.",
+  "rca_of_the_issue": "DispatchSchedulePage submit converts a cleared text value to null as designed. In dispatch.py update_schedule, payload.model_dump() is filtered with if v is not None, which removes explicitly supplied remarks:null. The endpoint then adds only duty_hours and metadata, updates no remarks, and _log_action receives empty user snapshots, producing a misleading empty Edited entry."
+}
