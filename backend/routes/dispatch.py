@@ -453,7 +453,7 @@ async def create_schedule(payload: ScheduleCreate, request: Request, db=Depends(
 async def list_schedules(request: Request, db=Depends(get_db),
                          officer_id: str = None, vendor_id: str = None,
                          client_id: str = None, post_site_id: str = None,
-                         post_pin: str = None,
+                         post_pin: str = None, work_order: str = None,
                          date_from: str = None, date_to: str = None,
                          shift_type: str = None,
                          confirmation_status: str = None,
@@ -473,6 +473,8 @@ async def list_schedules(request: Request, db=Depends(get_db),
     if shift_type: q["shift_type"] = shift_type
     if confirmation_status: q["confirmation_status"] = confirmation_status
     if shift_status: q["shift_status"] = shift_status
+    if work_order:
+        q["work_order_number"] = {"$regex": work_order, "$options": "i"}
     if date_from or date_to:
         date_q = {}
         if date_from: date_q["$gte"] = date_from
@@ -730,6 +732,8 @@ async def dashboard_stats(request: Request, db=Depends(get_db)):
         "not_confirmed": await db.dispatch_schedules.count_documents({**base, "confirmation_status": "Not Confirmed"}),
         "late": await db.dispatch_schedules.count_documents({**base, "shift_status": "Late Clock In"}),
         "absent": await db.dispatch_schedules.count_documents({**base, "shift_status": "Absent"}),
+        "checked_in": await db.dispatch_schedules.count_documents({**base, "shift_status": {"$in": ["Check-in", "Late Clock In"]}}),
+        "checked_out": await db.dispatch_schedules.count_documents({**base, "shift_status": {"$in": ["Checkout", "Late Clock Out", "Early Clock Out", "Completed"]}}),
         "clients": await db.dispatch_clients.count_documents({"status": "active"}),
         "vendors": await db.dispatch_vendors.count_documents({"status": "active"}),
         "officers": await db.dispatch_officers.count_documents({"status": "active"}),

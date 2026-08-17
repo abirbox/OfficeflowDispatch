@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
-import { Users, Building2, MapPin, Shield, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
+import { Users, Building2, MapPin, Shield, CheckCircle2, Clock, XCircle, AlertTriangle, LogIn, LogOut, HelpCircle } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
+
+const REFRESH_MS = 30_000; // Live ticker refresh interval
 
 const Card = ({ icon: Icon, label, value, color, testid }) => (
   <div className="bg-white dark:bg-[#18181B] border border-[#E2E8F0] dark:border-[#27272A] rounded-xl p-5" data-testid={testid}>
@@ -18,15 +20,34 @@ const Card = ({ icon: Icon, label, value, color, testid }) => (
   </div>
 );
 
+const TickerCell = ({ icon: Icon, label, value, tone, testid }) => (
+  <div
+    className={`flex-1 min-w-[160px] rounded-lg p-4 border ${tone.bg} ${tone.border}`}
+    data-testid={testid}
+  >
+    <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-medium">
+      <Icon className={`w-4 h-4 ${tone.icon}`} />
+      <span className={tone.text}>{label}</span>
+    </div>
+    <div className={`mt-2 text-3xl font-bold ${tone.value}`}>{value ?? 0}</div>
+  </div>
+);
+
 const DispatchDashboardPage = () => {
   const { user } = useAuthStore();
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get('/dispatch/dashboard/stats').then(({ data }) => setStats(data))
-      .catch(() => setStats({}))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const load = () => {
+      api.get('/dispatch/dashboard/stats').then(({ data }) => { if (!cancelled) setStats(data); })
+        .catch(() => { if (!cancelled) setStats({}); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    };
+    load();
+    const t = setInterval(load, REFRESH_MS);
+    return () => { cancelled = true; clearInterval(t); };
   }, []);
 
   if (!hasPermission(user, 'dispatch.dashboard.view')) {
@@ -37,7 +58,57 @@ const DispatchDashboardPage = () => {
     <div className="space-y-6" data-testid="dispatch-dashboard">
       <div>
         <h1 className="text-3xl font-bold text-[#0F172A] dark:text-[#FAFAFA]">Dispatch Dashboard</h1>
-        <p className="text-sm text-[#64748B] dark:text-[#A1A1AA] mt-1">Today's dispatch operations at a glance</p>
+        <p className="text-sm text-[#64748B] dark:text-[#A1A1AA] mt-1">Today's dispatch operations at a glance · live refresh every 30s</p>
+      </div>
+
+      {/* Officer Attendance Ticker */}
+      <div className="bg-white dark:bg-[#18181B] border border-[#E2E8F0] dark:border-[#27272A] rounded-xl p-5" data-testid="officer-attendance-ticker">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-[#0F172A] dark:text-[#FAFAFA]">Officer Attendance — Today</h2>
+            <p className="text-xs text-[#64748B]">Real-time counters for the officers on shift today</p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <TickerCell
+            icon={LogIn} label="Checked-in" value={stats.checked_in}
+            tone={{ bg: 'bg-emerald-50 dark:bg-emerald-950/40', border: 'border-emerald-200 dark:border-emerald-900',
+                    icon: 'text-emerald-600', text: 'text-emerald-700 dark:text-emerald-300',
+                    value: 'text-emerald-700 dark:text-emerald-300' }}
+            testid="ticker-checked-in"
+          />
+          <TickerCell
+            icon={LogOut} label="Checked-out" value={stats.checked_out}
+            tone={{ bg: 'bg-sky-50 dark:bg-sky-950/40', border: 'border-sky-200 dark:border-sky-900',
+                    icon: 'text-sky-600', text: 'text-sky-700 dark:text-sky-300',
+                    value: 'text-sky-700 dark:text-sky-300' }}
+            testid="ticker-checked-out"
+          />
+          <TickerCell
+            icon={Clock} label="Pending" value={stats.pending}
+            tone={{ bg: 'bg-amber-50 dark:bg-amber-950/40', border: 'border-amber-200 dark:border-amber-900',
+                    icon: 'text-amber-600', text: 'text-amber-700 dark:text-amber-300',
+                    value: 'text-amber-700 dark:text-amber-300' }}
+            testid="ticker-pending"
+          />
+          <TickerCell
+            icon={HelpCircle} label="No Response" value={stats.no_response}
+            tone={{ bg: 'bg-slate-50 dark:bg-slate-950/40', border: 'border-slate-200 dark:border-slate-800',
+                    icon: 'text-slate-500', text: 'text-slate-600 dark:text-slate-300',
+                    value: 'text-slate-700 dark:text-slate-200' }}
+            testid="ticker-no-response"
+          />
+          <TickerCell
+            icon={XCircle} label="Absent" value={stats.absent}
+            tone={{ bg: 'bg-rose-50 dark:bg-rose-950/40', border: 'border-rose-200 dark:border-rose-900',
+                    icon: 'text-rose-600', text: 'text-rose-700 dark:text-rose-300',
+                    value: 'text-rose-700 dark:text-rose-300' }}
+            testid="ticker-absent"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

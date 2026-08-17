@@ -6,8 +6,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/sonner';
-import { Plus, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Filter, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MoreVertical } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
 import { CONFIRM_BADGE } from './_shared';
@@ -30,7 +31,7 @@ const STATUS_BADGE_MAP = {
 };
 
 const emptyFilters = {
-  officer_id: '', vendor_id: '', client_id: '', post_site_id: '', post_pin: '',
+  officer_id: '', vendor_id: '', client_id: '', post_site_id: '', post_pin: '', work_order: '',
   date_from: '', date_to: '', shift_type: '', confirmation_status: '', shift_status: '',
 };
 
@@ -67,6 +68,7 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
   const [actions, setActions] = useState([]);
   const [actionsLoading, setActionsLoading] = useState(false);
   const [statusBusy, setStatusBusy] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -204,20 +206,52 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="bg-white dark:bg-[#18181B] border border-[#E2E8F0] dark:border-[#27272A] rounded-xl p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-semibold"><Filter className="w-4 h-4" /> Filters</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div><Label className="text-xs">Officer</Label>
-            <Select value={filters.officer_id || 'all'} onValueChange={(v) => setF('officer_id', v === 'all' ? '' : v)}>
-              <SelectTrigger data-testid="filter-officer"><SelectValue placeholder="All officers" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All officers</SelectItem>
-                {officers.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+      {/* Filters (collapsible) */}
+      <div className="bg-white dark:bg-[#18181B] border border-[#E2E8F0] dark:border-[#27272A] rounded-xl">
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((o) => !o)}
+          className="w-full flex items-center justify-between p-4 text-sm font-semibold text-[#0F172A] dark:text-[#FAFAFA]"
+          data-testid="toggle-filters"
+        >
+          <span className="flex items-center gap-2">
+            <Filter className="w-4 h-4" /> Filters
+            {activeChips.length > 0 && (
+              <span className="ml-2 px-2 py-0.5 rounded-full bg-[#4F46E5] text-white text-xs font-medium">
+                {activeChips.length}
+              </span>
+            )}
+          </span>
+          {filtersOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+
+        {activeChips.length > 0 && (
+          <div className="px-4 pb-3 flex items-center gap-2 flex-wrap border-t border-[#E2E8F0] dark:border-[#27272A] pt-3">
+            {activeChips.map(({ k, v }) => (
+              <span key={k} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-xs">
+                {k.replace('_', ' ')}: {String(v).slice(0, 16)}
+                <button onClick={() => setF(k, '')}><X className="w-3 h-3" /></button>
+              </span>
+            ))}
+            <Button variant="ghost" size="sm" onClick={() => { setFilters(emptyFilters); setPage(1); }} data-testid="clear-filters" className="text-xs h-7">
+              Clear all
+            </Button>
           </div>
-          <div><Label className="text-xs">Vendor</Label>
-            <Select value={filters.vendor_id || 'all'} onValueChange={(v) => setF('vendor_id', v === 'all' ? '' : v)}>
+        )}
+
+        {filtersOpen && (
+          <div className="p-4 pt-0 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div><Label className="text-xs">Officer</Label>
+                <Select value={filters.officer_id || 'all'} onValueChange={(v) => setF('officer_id', v === 'all' ? '' : v)}>
+                  <SelectTrigger data-testid="filter-officer"><SelectValue placeholder="All officers" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">All officers</SelectItem>
+                    {officers.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div><Label className="text-xs">Vendor</Label>
+                <Select value={filters.vendor_id || 'all'} onValueChange={(v) => setF('vendor_id', v === 'all' ? '' : v)}>
               <SelectTrigger data-testid="filter-vendor"><SelectValue placeholder="All vendors" /></SelectTrigger>
               <SelectContent><SelectItem value="all">All vendors</SelectItem>
                 {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
@@ -273,18 +307,12 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
               </SelectContent>
             </Select>
           </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => { setFilters(emptyFilters); setPage(1); }} data-testid="clear-filters">
-            Clear filters
-          </Button>
-          {activeChips.map(({ k, v }) => (
-            <span key={k} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-xs">
-              {k.replace('_', ' ')}: {v.slice(0, 16)}
-              <button onClick={() => setF(k, '')}><X className="w-3 h-3" /></button>
-            </span>
-          ))}
-        </div>
+              <div><Label className="text-xs">Work Order</Label>
+                <Input value={filters.work_order} onChange={(e) => setF('work_order', e.target.value)} placeholder="WO-123" data-testid="filter-work-order" />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -384,10 +412,37 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
                     </button>
                   ) : <span className="text-[#64748B]">—</span>}
                 </td>
-                <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
-                  {canEdit && <Button size="sm" variant="outline" onClick={() => openEdit(r)} data-testid={`edit-${r.id}`}>Edit</Button>}
-                  {canCancel && r.shift_status !== 'Cancelled' && <Button size="sm" variant="outline" onClick={() => cancelSchedule(r)} data-testid={`cancel-${r.id}`}>Cancel</Button>}
-                  {canDelete && <Button size="sm" variant="outline" onClick={() => deleteSchedule(r)} data-testid={`delete-${r.id}`}>Del</Button>}
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  {(canEdit || canCancel || canDelete) ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" data-testid={`row-menu-${r.id}`} aria-label="Row actions">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" data-testid={`row-menu-content-${r.id}`}>
+                        {canEdit && (
+                          <DropdownMenuItem onClick={() => openEdit(r)} data-testid={`edit-${r.id}`}>
+                            Edit
+                          </DropdownMenuItem>
+                        )}
+                        {canCancel && r.shift_status !== 'Cancelled' && (
+                          <DropdownMenuItem onClick={() => cancelSchedule(r)} data-testid={`cancel-${r.id}`}>
+                            Cancel
+                          </DropdownMenuItem>
+                        )}
+                        {canDelete && (
+                          <>
+                            {(canEdit || canCancel) && <DropdownMenuSeparator />}
+                            <DropdownMenuItem onClick={() => deleteSchedule(r)} data-testid={`delete-${r.id}`}
+                              className="text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950">
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : <span className="text-[#64748B]">—</span>}
                 </td>
               </tr>
             ))}
