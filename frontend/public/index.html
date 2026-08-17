@@ -23,6 +23,29 @@
         -->
         <title>Emergent | Fullstack App</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+        <script>
+        // Suppress benign ResizeObserver notification errors at capture phase BEFORE
+        // any bundle (webpack dev-server overlay) registers its own listener.
+        // See facebook/create-react-app#11889 and w3c/csswg-drafts#5488.
+        (function () {
+          var RES_MSG = 'ResizeObserver loop';
+          window.addEventListener('error', function (e) {
+            var msg = e && (e.message || (e.error && e.error.message)) || '';
+            if (msg.indexOf(RES_MSG) !== -1) {
+              e.stopImmediatePropagation();
+              e.preventDefault();
+              return false;
+            }
+          }, true);
+          window.addEventListener('unhandledrejection', function (e) {
+            var msg = e && e.reason && (e.reason.message || String(e.reason)) || '';
+            if (msg.indexOf(RES_MSG) !== -1) {
+              e.stopImmediatePropagation();
+              e.preventDefault();
+            }
+          }, true);
+        })();
+        </script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
     <body>

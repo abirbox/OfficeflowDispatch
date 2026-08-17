@@ -1,0 +1,48 @@
+{
+  "summary": "Frontend-only verification completed on the public preview URL for the Dispatch Schedule confirmation UX and regressions. The legacy phone/Confirm action is absent; the 5-value confirmation Select opens a pre-filled dialog; saving Declined/Text updates the row and unified Full History; cancelled rows are static; Status, Edit, Cancel, Delete, and New Schedule all worked. One high-impact runtime defect remains: creating/updating a long-reference row triggered a ResizeObserver webpack overlay that blocked normal clicks until the test page overlay was removed for diagnostic continuation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dispatch Schedule table / Radix Select flow",
+        "issue": "A full-page webpack dev-server runtime overlay appeared after creating a schedule with long client/vendor/post names and using the Confirmation Select. It reported repeated 'ResizeObserver loop completed with undelivered notifications' errors and intercepted the Last Modified By click. This is a user-blocking recurrence of the iteration 18 defect.",
+        "selector": "#webpack-dev-server-client-overlay",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Dispatch dialogs",
+        "issue": "Create/Edit, Confirmation, and Full History dialogs emit Radix accessibility warnings because DialogContent has no DialogDescription or explicit aria-describedby={undefined}.",
+        "selector": "[role='dialog'], [data-testid='actions-dialog']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix the underlying long-content ResizeObserver/reflow loop and ensure development runtime errors cannot install a click-blocking iframe overlay; re-test create -> confirmation -> Last Modified By using long reference names.",
+    "Add DialogDescription or an intentional aria-describedby strategy to Dispatch dialogs.",
+    "Add data-testid values to the row Cancel and Del buttons; these required regression controls currently have none."
+  ],
+  "critical_code_review_comments": [
+    "The ResizeObserver suppression in frontend/src/index.js uses ordinary bubble-phase window listeners, but the webpack runtime listener is installed earlier and still creates #webpack-dev-server-client-overlay. A capture-phase strategy may prevent the dev overlay, but the underlying unstable table/Select resize loop should also be corrected.",
+    "openActions sets actionsDialog before clearing actions, so switching between rows can briefly render the previous schedule's history while the new /actions request is pending; clear actions and show a loading state before opening/fetching.",
+    "DispatchSchedulePage retains dead legacy Confirmation History state, API loader, dialog, canHistory permission, and unused Phone/History/ClipboardList imports even though confirmation history is now unified under Full History. Remove the unreachable legacy path."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_21.json"
+  ],
+  "success_rate": {
+    "backend": "Skipped per frontend-only request",
+    "frontend": "All requested functional assertions passed; environment not fully green because 1 blocking runtime overlay defect was reproduced"
+  },
+  "seed_data_creation": "Created one isolated TEST_iter21 Dispatch schedule through the UI using existing TEST_ references, changed confirmation to Declined/Text, updated status, edited, cancelled, and permanently deleted it. No test schedule remains.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use admin credentials from /app/memory/test_credentials.md and the public frontend URL. Functional confirmation UX is green. Reproduce the remaining overlay with a newly created row using long TEST_ client/vendor/post names, then choose Declined and click Last Modified By. The overlay occurred in the first end-to-end run and blocked the normal click; a fresh-session diagnostic confirmed the history entry and all regressions, and cleanup succeeded.",
+  "rca_of_the_issue": "After a long-reference row is inserted and Radix Select/dialog operations cause table reflow, ResizeObserver emits repeated undelivered-notification errors. CRA's webpack-dev-server error client converts them into a full-page iframe overlay that intercepts clicks. The current index.js suppression executes too late/in the ineffective listener phase to reliably stop the already-registered runtime handler. Reproduction: login as super_admin -> create schedule using long TEST_ references -> Confirmation dropdown -> Declined -> save Text/Declined via SMS -> click Last Modified By; normal click timed out because #webpack-dev-server-client-overlay intercepted pointer events."
+}

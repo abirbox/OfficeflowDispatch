@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/sonner';
-import { Plus, Filter, X, ChevronLeft, ChevronRight, Phone, History, ClipboardList } from 'lucide-react';
+import { Plus, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
 import { CONFIRM_BADGE } from './_shared';
@@ -42,7 +42,6 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
   const canCancel = hasPermission(user, 'dispatch.schedule.cancel');
   const canConfirm = hasPermission(user, 'dispatch.confirmation.manage');
   const canFinancial = hasPermission(user, 'dispatch.financial.view');
-  const canHistory = hasPermission(user, 'dispatch.confirmation.history');
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -64,10 +63,9 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
 
   const [confDialog, setConfDialog] = useState(null);
   const [confForm, setConfForm] = useState({ confirmation_status: 'Confirmed', confirmation_method: 'Call', remarks: '' });
-  const [historyDialog, setHistoryDialog] = useState(null);
-  const [history, setHistory] = useState([]);
   const [actionsDialog, setActionsDialog] = useState(null);
   const [actions, setActions] = useState([]);
+  const [actionsLoading, setActionsLoading] = useState(false);
   const [statusBusy, setStatusBusy] = useState(null);
 
   const load = useCallback(async () => {
@@ -150,22 +148,27 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
 
-  const openConfirm = (row) => { setConfDialog(row); setConfForm({ confirmation_status: 'Confirmed', confirmation_method: 'Call', remarks: '' }); };
+  const openConfirm = (row, preselectStatus = null) => {
+    setConfDialog(row);
+    setConfForm({
+      confirmation_status: preselectStatus || row.confirmation_status || 'Confirmed',
+      confirmation_method: 'Call',
+      remarks: ''
+    });
+  };
   const submitConfirm = async () => {
     try {
       await api.post(`/dispatch/schedules/${confDialog.id}/confirm`, confForm);
       toast.success('Confirmation updated'); setConfDialog(null); load();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
-  const openHistory = async (row) => {
-    setHistoryDialog(row);
-    try { const { data } = await api.get(`/dispatch/schedules/${row.id}/history`); setHistory(data); }
-    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
-  };
   const openActions = async (row) => {
+    setActions([]);              // clear stale entries before showing loader
+    setActionsLoading(true);
     setActionsDialog(row);
     try { const { data } = await api.get(`/dispatch/schedules/${row.id}/actions`); setActions(data); }
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    finally { setActionsLoading(false); }
   };
   const applyStatus = async (row, status) => {
     setStatusBusy(`${row.id}:${status}`);
@@ -295,8 +298,8 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
               <th className="px-3 py-3">Shift</th><th className="px-3 py-3">Time</th>
               <th className="px-3 py-3">Hours</th>
               {canFinancial && <><th className="px-3 py-3">Duty Rate</th><th className="px-3 py-3">Billing</th></>}
-              <th className="px-3 py-3">Confirmation</th><th className="px-3 py-3">Status</th>
-              <th className="px-3 py-3">Quick Actions</th>
+              <th className="px-3 py-3">Confirmation</th>
+              <th className="px-3 py-3">Status</th>
               <th className="px-3 py-3">Last Modified By</th>
               <th className="px-3 py-3 text-right">Manage</th>
             </tr>
@@ -317,49 +320,74 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
                 <td className="px-3 py-2">{r.duty_hours}h</td>
                 {canFinancial && <><td className="px-3 py-2">{r.duty_rate ?? '—'}</td><td className="px-3 py-2">{r.billing_rate ?? '—'}</td></>}
                 <td className="px-3 py-2">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${CONFIRM_BADGE[r.confirmation_status] || 'bg-slate-100 text-slate-600'}`}>{r.confirmation_status}</span>
+                  {canConfirm && r.shift_status !== 'Cancelled' ? (
+                    <Select
+                      value={r.confirmation_status}
+                      onValueChange={(v) => openConfirm(r, v)}
+                    >
+                      <SelectTrigger
+                        className={`h-8 w-[140px] text-xs font-medium border ${CONFIRM_BADGE[r.confirmation_status] || 'bg-slate-100 text-slate-600'}`}
+                        data-testid={`confirmation-select-${r.id}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CONF_STATUSES.map((s) => (
+                          <SelectItem key={s} value={s} data-testid={`confirmation-option-${s.replace(/\s+/g, '-').toLowerCase()}-${r.id}`}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${CONFIRM_BADGE[r.confirmation_status] || 'bg-slate-100 text-slate-600'}`}>{r.confirmation_status}</span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_BADGE_MAP[r.shift_status] || 'bg-slate-100 text-slate-600'}`}>{r.shift_status}</span>
-                </td>
-                <td className="px-3 py-2">
-                  {canEdit ? (
-                    <div className="flex flex-wrap gap-1">
-                      {QUICK_ACTIONS.map((a) => (
-                        <button
-                          key={a}
-                          onClick={() => applyStatus(r, a)}
-                          disabled={statusBusy === `${r.id}:${a}` || r.shift_status === a || r.shift_status === 'Cancelled'}
-                          className={`px-2 py-1 rounded text-[11px] font-medium border transition ${
-                            r.shift_status === a
-                              ? 'bg-[#4F46E5] text-white border-[#4F46E5]'
-                              : 'border-[#E2E8F0] dark:border-[#27272A] text-[#334155] dark:text-[#E4E4E7] hover:bg-[#F1F5F9] dark:hover:bg-[#27272A]'
-                          } ${statusBusy === `${r.id}:${a}` ? 'opacity-50 cursor-wait' : ''} disabled:opacity-40`}
-                          data-testid={`action-${a.replace(/\s+/g, '-').toLowerCase()}-${r.id}`}
-                        >
-                          {a}
-                        </button>
-                      ))}
-                    </div>
-                  ) : <span className="text-xs text-[#64748B]">—</span>}
+                  {canEdit && r.shift_status !== 'Cancelled' ? (
+                    <Select
+                      value={r.shift_status}
+                      onValueChange={(v) => applyStatus(r, v)}
+                      disabled={!!statusBusy && statusBusy.startsWith(`${r.id}:`)}
+                    >
+                      <SelectTrigger
+                        className={`h-8 w-[150px] text-xs font-medium border ${STATUS_BADGE_MAP[r.shift_status] || 'bg-slate-100 text-slate-600'}`}
+                        data-testid={`status-select-${r.id}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SHIFT_STATUSES.filter((s) => s !== 'Cancelled').map((s) => (
+                          <SelectItem key={s} value={s} data-testid={`status-option-${s.replace(/\s+/g, '-').toLowerCase()}-${r.id}`}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_BADGE_MAP[r.shift_status] || 'bg-slate-100 text-slate-600'}`}>{r.shift_status}</span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {r.last_modified_by_name ? (
-                    <div>
-                      <div className="font-medium text-[#334155] dark:text-[#E4E4E7]">{r.last_modified_by_name}</div>
+                    <button
+                      type="button"
+                      onClick={() => openActions(r)}
+                      className="text-left group focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/40 rounded"
+                      data-testid={`last-modified-${r.id}`}
+                      title="Click to view full history"
+                    >
+                      <div className="font-medium text-[#4F46E5] group-hover:underline">{r.last_modified_by_name}</div>
                       <div className="text-[10px] text-[#64748B]">
                         {r.last_modified_action || 'Modified'} · {(r.last_modified_at || '').slice(0, 16).replace('T', ' ')}
                       </div>
-                    </div>
+                    </button>
                   ) : <span className="text-[#64748B]">—</span>}
                 </td>
                 <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
-                  {canConfirm && <Button size="sm" variant="outline" onClick={() => openConfirm(r)} data-testid={`confirm-${r.id}`} title="Confirm"><Phone className="w-3 h-3" /></Button>}
-                  <Button size="sm" variant="outline" onClick={() => openActions(r)} data-testid={`actions-${r.id}`} title="Action history"><ClipboardList className="w-3 h-3" /></Button>
-                  {canHistory && <Button size="sm" variant="outline" onClick={() => openHistory(r)} data-testid={`history-${r.id}`} title="Confirmation history"><History className="w-3 h-3" /></Button>}
                   {canEdit && <Button size="sm" variant="outline" onClick={() => openEdit(r)} data-testid={`edit-${r.id}`}>Edit</Button>}
-                  {canCancel && r.shift_status !== 'Cancelled' && <Button size="sm" variant="outline" onClick={() => cancelSchedule(r)}>Cancel</Button>}
-                  {canDelete && <Button size="sm" variant="outline" onClick={() => deleteSchedule(r)}>Del</Button>}
+                  {canCancel && r.shift_status !== 'Cancelled' && <Button size="sm" variant="outline" onClick={() => cancelSchedule(r)} data-testid={`cancel-${r.id}`}>Cancel</Button>}
+                  {canDelete && <Button size="sm" variant="outline" onClick={() => deleteSchedule(r)} data-testid={`delete-${r.id}`}>Del</Button>}
                 </td>
               </tr>
             ))}
@@ -383,7 +411,10 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
       {/* Create/Edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'New'} Dispatch Schedule</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit' : 'New'} Dispatch Schedule</DialogTitle>
+            <DialogDescription>{editing ? 'Update the shift details for this dispatch.' : 'Assign an officer to a post site for a specific date and shift.'}</DialogDescription>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div><Label>Date *</Label><Input type="date" value={form.date || ''} onChange={(e) => setForm({ ...form, date: e.target.value })} data-testid="sf-date" /></div>
             <div><Label>Shift *</Label>
@@ -438,7 +469,10 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
       {/* Confirmation dialog */}
       <Dialog open={!!confDialog} onOpenChange={(o) => !o && setConfDialog(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Update Confirmation</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Update Confirmation</DialogTitle>
+            <DialogDescription>Record the confirmation contact status, method and any notes.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-3">
             <div><Label>Status</Label>
               <Select value={confForm.confirmation_status} onValueChange={(v) => setConfForm({ ...confForm, confirmation_status: v })}>
@@ -462,42 +496,29 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
         </DialogContent>
       </Dialog>
 
-      {/* History dialog */}
-      <Dialog open={!!historyDialog} onOpenChange={(o) => !o && setHistoryDialog(null)}>
-        <DialogContent className="max-w-lg max-h-[70vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Confirmation History</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            {history.length === 0 ? <p className="text-sm text-[#64748B]">No history yet.</p>
-              : history.map(h => (
-                <div key={h.id} className="border border-[#E2E8F0] dark:border-[#27272A] rounded-lg p-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{h.contacted_by_name}</span>
-                    <span className="text-xs text-[#64748B]">{h.contacted_at?.slice(0, 16).replace('T', ' ')}</span>
-                  </div>
-                  <div className="text-xs text-[#64748B] mt-1">{h.contacted_by_role} · {h.method || '—'}</div>
-                  <div className="mt-1"><span className={`px-2 py-0.5 rounded-full text-xs ${CONFIRM_BADGE[h.status] || 'bg-slate-100'}`}>{h.status}</span></div>
-                  {h.remarks && <div className="text-sm mt-2 text-[#334155] dark:text-[#E4E4E7]">{h.remarks}</div>}
-                </div>
-              ))}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Full Action History dialog — check-ins, checkouts, edits, cancels, confirmations */}
+      {/* Full History dialog — unified: check-ins, checkouts, edits, cancels, confirmations */}
       <Dialog open={!!actionsDialog} onOpenChange={(o) => !o && setActionsDialog(null)}>
         <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto" data-testid="actions-dialog">
           <DialogHeader>
-            <DialogTitle>Action History</DialogTitle>
+            <DialogTitle>Full History</DialogTitle>
+            <DialogDescription>Check-ins, checkouts, confirmations, edits and everything else — newest first.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {actions.length === 0 ? <p className="text-sm text-[#64748B]">No actions recorded yet.</p>
+            {actionsLoading ? <p className="text-sm text-[#64748B]">Loading history…</p>
+              : actions.length === 0 ? <p className="text-sm text-[#64748B]">No actions recorded yet.</p>
               : actions.map(a => (
                 <div key={a.id} className="border border-[#E2E8F0] dark:border-[#27272A] rounded-lg p-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-[#0F172A] dark:text-[#FAFAFA]">{a.actor_name || 'Unknown'}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-[#0F172A] dark:text-[#FAFAFA]">{a.actor_name || 'Unknown'}</span>
+                      {a.actor_role && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
+                          {a.actor_role.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs text-[#64748B]">{a.at?.slice(0, 16).replace('T', ' ')}</span>
                   </div>
-                  <div className="text-xs text-[#64748B] mt-1">Role: {a.actor_role || '—'}</div>
                   <div className="mt-2">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE_MAP[a.action] || 'bg-indigo-100 text-indigo-700'}`}>
                       {a.action}

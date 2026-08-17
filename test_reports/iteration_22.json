@@ -1,0 +1,43 @@
+{
+  "summary": "Frontend-only Dispatch Schedule re-verification completed on the public preview URL. The exact long-reference ResizeObserver reproduction passed: Declined/Text confirmation saved, Last Modified By remained normally clickable, Full History opened, and #webpack-dev-server-client-overlay never appeared. Cleanup, cancel/delete selectors, static cancelled badges, create, edit, confirmation, Check-in, Checkout, unified history, and cleanup all passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dispatch dialogs",
+        "issue": "Create/Edit, Confirmation, and Full History still emit Radix accessibility warnings because DialogContent has no DialogDescription or explicit aria-describedby={undefined}.",
+        "selector": "[role='dialog'], [data-testid='actions-dialog']",
+        "priority": "LOW"
+      },
+      {
+        "component": "Full History entry",
+        "issue": "The actor role is present as plain text ('Role: super_admin') rather than the requested visually styled role badge.",
+        "selector": "[data-testid='actions-dialog']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Add DialogDescription or an intentional aria-describedby strategy to Dispatch dialogs.",
+    "Render actor_role as a badge in each Full History entry if the specified role-badge presentation is required."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/test_reports/iteration_22.json"
+  ],
+  "success_rate": {
+    "backend": "Skipped per frontend-only request",
+    "frontend": "100% of requested functional assertions passed; two low-severity presentation/accessibility issues remain"
+  },
+  "seed_data_creation": "Created two isolated TEST_iter22 schedules through the UI using existing long TEST_ client/vendor/post references. The first was changed to Declined/Text, inspected, cancelled, and deleted. The second was edited, confirmed, checked in, checked out, inspected, and deleted. No test schedule remains.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 22 confirms the iteration_21 HIGH overlay defect is resolved in the exact long-reference flow. Normal Last Modified By clicks opened one unified actions-dialog, with no webpack overlay and no legacy Confirmation History dialog. cancel-{id} and delete-{id} worked. Only existing low-severity dialog accessibility warnings and plain-text role presentation remain.",
+  "rca_of_the_issue": "Resolved HIGH defect: capture-phase error suppression is loaded from public/index.html before the webpack bundle, so ResizeObserver loop notifications no longer reach webpack-dev-server's overlay listener during the long-reference Radix Select/table reflow sequence. The exact prior reproduction completed without #webpack-dev-server-client-overlay."
+}

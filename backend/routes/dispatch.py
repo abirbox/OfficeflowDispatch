@@ -695,7 +695,8 @@ async def confirm_schedule(sid: str, payload: ConfirmationUpdate, request: Reque
         "contacted_by_department_id": user.get("department_id"),
         "contacted_at": now,
     })
-    await _log_action(db, sid, user, f"Confirmation: {payload.confirmation_status}",
+    method_note = f" ({payload.confirmation_method})" if payload.confirmation_method else ""
+    await _log_action(db, sid, user, f"Confirmation: {payload.confirmation_status}{method_note}",
                       old_value=sched.get("confirmation_status"),
                       new_value=payload.confirmation_status,
                       remarks=payload.remarks)
